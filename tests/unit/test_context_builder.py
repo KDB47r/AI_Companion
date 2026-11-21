@@ -1,5 +1,12 @@
+import pytest
+
 from app.llm.base import Message
-from app.orchestrator.context_builder import build_messages, build_p0_messages
+from app.orchestrator.context_builder import (
+    ContextTooLarge,
+    build_context,
+    build_messages,
+    build_p0_messages,
+)
 
 
 def test_build_p0_messages_has_system_then_user():
@@ -40,3 +47,75 @@ def test_build_messages_drops_empty_and_non_dialog_roles():
 
     assert [message.role for message in messages] == ["system", "assistant", "user"]
     assert messages[1].content == "保留"
+
+
+def test_build_context_drops_oldest_when_budget_is_small():
+    history = [
+        Message(role="user", content="第一轮" * 20),
+        Message(role="assistant", content="第一轮回复" * 20),
+        Message(role="user", content="第二轮"),
+        Message(role="assistant", content="第二轮回复"),
+    ]
+
+    result = build_context(
+        history,
+        None,
+        "当前问题",
+        context_window_tokens=250,
+        output_reserve_tokens=20,
+        safety_margin=1.0,
+        summary_trigger_ratio=0.5,
+    )
+
+    assert result.dropped_messages > 0
+    assert result.needs_summary is True
+    assert result.messages[-1].content == "当前问题"
+    assert all("第一轮" not in message.content for message in result.messages)
+    assert any("第二轮" in message.content for message in result.messages)
+
+
+def test_build_context_injects_summary_into_system():
+    result = build_context(
+        [Message(role="user", content="最近一句")],
+        "用户叫小明。",
+        "你好",
+        context_window_tokens=1000,
+        output_reserve_tokens=100,
+        safety_margin=1.0,
+        summary_trigger_ratio=0.9,
+    )
+
+    assert "用户叫小明" in result.messages[0].content
+    assert result.messages[-1].content == "你好"
+
+
+def test_trigger_uses_available_history_budget_not_full_window():
+    history = [Message(role="user", content="你好" * 60)]
+
+    result = build_context(
+        history,
+        None,
+        "你好",
+        context_window_tokens=1000,
+        output_reserve_tokens=700,
+        safety_margin=1.0,
+        summary_trigger_ratio=0.7,
+    )
+
+    # available history budget is ~141 tokens; 70% is ~99.
+    # The history is ~124 tokens, so B triggers even though 124 < 700.
+    assert result.dropped_messages == 0
+    assert result.needs_summary is True
+
+
+def test_build_context_raises_when_current_message_is_too_large():
+    with pytest.raises(ContextTooLarge):
+        build_context(
+            [],
+            None,
+            "很长的消息" * 500,
+            context_window_tokens=100,
+            output_reserve_tokens=50,
+            safety_margin=1.0,
+            summary_trigger_ratio=0.9,
+        )

@@ -2,7 +2,7 @@
 
 一个用于学习大模型后端开发的陪伴型 AI 聊天服务。目标不是做模型训练，而是把 **上下文工程、提示词工程、工具调用/MCP、SSE 流式输出** 这条链路亲手实现一遍。
 
-> 当前状态：P1 已实现（多轮上下文、PostgreSQL 持久化、历史恢复、幂等）。P2 做 token 预算与摘要。
+> 当前状态：P2 已实现（token 预算 + 滚动摘要；26 tests passed；PG 迁移 `0002_summaries` 已应用）。P3 做工具调用/MCP。
 
 ## 学习目标
 
@@ -115,5 +115,45 @@ P1 新增接口：
 - `POST /v1/conversations`：新建会话
 - `DELETE /v1/conversations/{id}`：归档会话
 
-`POST /v1/chat/stream` 现在会自动创建/续用 `conversation_id`，并把最近 20 条历史一起发给模型。
+`POST /v1/chat/stream` 现在会自动创建/续用 `conversation_id`，并把历史一起发给模型。
+
+## P2：上下文预算与滚动摘要
+
+默认配置：
+
+```dotenv
+CONTEXT_WINDOW_TOKENS=32768
+SUMMARY_ENABLED=true
+SUMMARY_TRIGGER_RATIO=0.7
+SUMMARY_KEEP_RECENT_MESSAGES=6
+SUMMARY_MAX_TOKENS=512
+SUMMARY_MODEL=qwen-turbo
+SUMMARY_TEMPERATURE=0.2
+SUMMARY_SYNC=false
+TOKEN_SAFETY_MARGIN=1.15
+```
+
+- 上下文按 token 预算装配，不再按消息条数硬截断。
+- 历史被裁剪，或未摘要 token 超过“可用历史预算”的 70% 时，触发滚动摘要。
+- 摘要由 `qwen-turbo` 生成，存 `summaries` 表，下一轮自动注入 system prompt。
+- 默认后台异步生成；测试可设 `SUMMARY_SYNC=true`。
+
+想快速看到摘要效果，可以临时把窗口调小：
+
+```dotenv
+CONTEXT_WINDOW_TOKENS=1000
+LLM_MAX_TOKENS=200
+SUMMARY_TRIGGER_RATIO=0.2
+SUMMARY_KEEP_RECENT_MESSAGES=2
+SUMMARY_SYNC=true
+```
+
+重启后聊 3~4 轮，然后查库：
+
+```bash
+sudo -u postgres psql -d ai_companion \
+  -c "SELECT conversation_id, up_to_message_id, left(content, 80), token_count FROM summaries ORDER BY id DESC LIMIT 3;"
+```
+
+验证完记得把窗口参数恢复成默认值。
 

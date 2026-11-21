@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.llm.base import Message, Usage
-from app.orchestrator.context_builder import PROMPT_VERSION, build_messages
+from app.orchestrator.context_builder import PROMPT_VERSION, build_context
 from app.storage.models import Run, utcnow
 from app.storage.repositories import (
     ConversationRepository,
     MessageRepository,
     RunRepository,
+    SummaryRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class PreparedTurn:
     created_at: str
     messages: list[Message]
     history_count: int
+    needs_summary: bool
 
 
 @dataclass(slots=True)
@@ -114,15 +116,28 @@ class TurnService:
                             )
                     raise TurnInProgress(conversation.id)
 
-            history_rows = await messages.list_recent_completed(
+            summaries = SummaryRepository(session)
+            latest_summary = await summaries.latest(conversation.id)
+            history_rows = await messages.list_completed_after(
                 conversation.id,
-                self._settings.max_history_messages,
+                latest_summary.up_to_created_at
+                if latest_summary is not None
+                else None,
             )
             history = [
                 Message(role=row.role, content=row.content)
                 for row in history_rows
                 if row.role in ("user", "assistant") and row.content
             ]
+            build = build_context(
+                history,
+                latest_summary.content if latest_summary is not None else None,
+                message,
+                context_window_tokens=self._settings.context_window_tokens,
+                output_reserve_tokens=self._settings.llm_max_tokens,
+                safety_margin=self._settings.token_safety_margin,
+                summary_trigger_ratio=self._settings.summary_trigger_ratio,
+            )
 
             user_row = await messages.create(
                 conversation_id=conversation.id,
@@ -155,8 +170,9 @@ class TurnService:
                 assistant_message_id=f"m_{uuid4().hex}",
                 run_id=run.id,
                 created_at=datetime.now(timezone.utc).isoformat(),
-                messages=build_messages(history, message),
+                messages=build.messages,
                 history_count=len(history),
+                needs_summary=build.needs_summary,
             )
 
     async def finish(

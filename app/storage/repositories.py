@@ -1,9 +1,10 @@
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.storage.models import Conversation, Message, Run, User, utcnow
+from app.storage.models import Conversation, Message, Run, Summary, User, utcnow
 
 
 class UserRepository:
@@ -165,22 +166,23 @@ class MessageRepository:
             .limit(1)
         )
 
-    async def list_recent_completed(
+    async def list_completed_after(
         self,
         conversation_id: str,
-        limit: int,
+        after_created_at: datetime | None,
     ) -> list[Message]:
-        result = await self._session.scalars(
-            select(Message)
-            .where(
-                Message.conversation_id == conversation_id,
-                Message.role.in_(("user", "assistant")),
-                Message.status == "completed",
-            )
-            .order_by(Message.created_at.desc())
-            .limit(limit)
+        stmt = select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.role.in_(("user", "assistant")),
+            Message.status == "completed",
         )
-        return list(reversed(result.all()))
+        if after_created_at is not None:
+            stmt = stmt.where(Message.created_at > after_created_at)
+
+        result = await self._session.scalars(
+            stmt.order_by(Message.created_at.asc())
+        )
+        return list(result.all())
 
     async def list_for_conversation(
         self,
@@ -235,3 +237,36 @@ class RunRepository:
             .order_by(Run.created_at.desc())
             .limit(1)
         )
+
+
+class SummaryRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def latest(self, conversation_id: str) -> Summary | None:
+        return await self._session.scalar(
+            select(Summary)
+            .where(Summary.conversation_id == conversation_id)
+            .order_by(Summary.created_at.desc())
+            .limit(1)
+        )
+
+    async def create(
+        self,
+        *,
+        conversation_id: str,
+        up_to_message_id: str,
+        up_to_created_at: datetime,
+        content: str,
+        token_count: int | None,
+    ) -> Summary:
+        summary = Summary(
+            conversation_id=conversation_id,
+            up_to_message_id=up_to_message_id,
+            up_to_created_at=up_to_created_at,
+            content=content,
+            token_count=token_count,
+        )
+        self._session.add(summary)
+        await self._session.flush()
+        return summary

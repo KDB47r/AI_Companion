@@ -13,7 +13,9 @@ from app.api.deps import get_current_user
 from app.config import Settings
 from app.llm.base import LLMProvider, Usage
 from app.orchestrator.chat_service import stream_turn
-from app.orchestrator.events import SSEEvent, format_sse, heartbeat
+from app.orchestrator.context_builder import ContextTooLarge
+from app.orchestrator.events import format_sse, heartbeat
+from app.orchestrator.summary_service import SummaryService
 from app.orchestrator.turn_service import (
     ConversationNotFound,
     PreparedTurn,
@@ -68,6 +70,11 @@ async def chat_stream(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="AI request already in progress",
+        ) from exc
+    except ContextTooLarge as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="context too large",
         ) from exc
     except SQLAlchemyError as exc:
         logger.exception("failed to prepare chat turn")
@@ -216,6 +223,13 @@ async def _new_turn_events(
                 error_code=error_code,
             )
         )
+
+        if prepared.needs_summary and settings.summary_enabled:
+            summary_service: SummaryService = request.app.state.summary_service
+            if settings.summary_sync:
+                await summary_service.maybe_summarize(prepared.conversation_id)
+            else:
+                summary_service.schedule(prepared.conversation_id)
 
 
 async def _persist_safely(coro) -> None:

@@ -141,6 +141,65 @@ system prompt
 - P1 不做 token 计数和裁剪；用消息条数兜底。P2 换成 token 预算 + 摘要。
 - 历史顺序按 `created_at ASC`。
 
+### 6.1 P1 的“短暂记忆”原理
+
+核心结论：**模型本身是无状态的，它每次只看到本次请求里带上的文字。P1 的“记忆”是数据库存历史 + 每次请求重放最近 20 条。**
+
+一次请求的链路：
+
+1. 前端带上 `conversation_id` 请求 `POST /v1/chat/stream`。
+2. `TurnService.prepare` 读取会话，按 `conversation_id` 从 `messages` 表加载历史：
+
+   ```python
+   # app/orchestrator/turn_service.py:117
+   history_rows = await messages.list_recent_completed(
+       conversation.id,
+       self._settings.max_history_messages,
+   )
+   ```
+
+3. 查询逻辑（`app/storage/repositories.py:168`）：只取 `role in (user, assistant)` 且 `status=completed` 的消息，按 `created_at desc` 取最近 20 条，再反转成时间正序。
+4. `build_messages`（`app/orchestrator/context_builder.py:21`）拼成：
+
+   ```text
+   [system 人设] + [历史 user/assistant...] + [当前 user 消息]
+   ```
+
+5. 整个列表发给模型；SSE 把增量返回给前端。
+6. `TurnService.finish`（`turn_service.py:162`）把 assistant 回复、token、耗时落库。
+7. 下一轮重复 2~6 步，此时数据库里多了上一轮的 user/assistant，所以模型“记得”。
+
+窗口变化（`MAX_HISTORY_MESSAGES=20`，一轮问答 2 条）：
+
+```text
+第 1 轮：system + u1
+第 2 轮：system + u1 + a1 + u2
+...
+第 11 轮：system + 前 10 轮（20 条）+ u11
+第 12 轮：最早的第 1 轮被挤出窗口，只剩第 2~11 轮 + u12
+```
+
+所以“超过多轮就不记得”不是模型失忆，而是它这次根本没收最早的文本。默认 20 条约等于 10 轮完整问答；到第 12 次请求时开始丢最早的一轮。
+
+为什么不无限重放：
+
+- 模型有上下文窗口上限，超过会报错或截断；
+- 输入 token 越多，成本和首 token 延迟越高；
+- 旧内容会稀释当前任务的注意力。
+
+三种“记忆”要分清：
+
+| 类型 | 存在哪里 | 怎么影响模型 | 本项目 |
+|---|---|---|---|
+| 参数记忆 | 模型权重 | 训练时学到的知识，有截止时间 | 改不了，也不能靠多轮对话更新 |
+| 上下文/工作记忆 | 本次请求的 prompt | 模型这次能看到的内容 | P1：最近 20 条 |
+| 外部记忆 | 数据库/向量库 | 检索后注入 prompt | P2 摘要、P4 长期记忆/RAG |
+| 实时信息 | 工具/MCP | 模型调用后拿到结果 | P3 |
+
+刷新页面能恢复历史，是因为前端保存了 `conversation_id`，通过 `GET /v1/conversations/{id}/messages` 从数据库读，不是模型记住了。
+
+P1 的限制就是：窗口按“消息条数”硬截断，超出即丢弃，没有摘要。P2 会把这里升级为 **token 预算 + 滚动摘要**：保留最近几轮原文，更早的对话压缩成摘要注入，从而在有限窗口里记住更久。
+
 ## 7. 流式与落库
 
 - 请求开始：插入 user 消息（幂等约束）。

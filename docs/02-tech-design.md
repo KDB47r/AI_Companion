@@ -282,10 +282,13 @@ CREATE TABLE summaries (
   id               BIGSERIAL PRIMARY KEY,
   conversation_id  TEXT NOT NULL REFERENCES conversations(id),
   up_to_message_id TEXT NOT NULL,
+  up_to_created_at TIMESTAMPTZ NOT NULL,
   content          TEXT NOT NULL,
   token_count      INT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX idx_summaries_conv_created
+  ON summaries(conversation_id, created_at);
 
 CREATE TABLE memories (
   id                BIGSERIAL PRIMARY KEY,
@@ -505,7 +508,10 @@ mcp:
 
 > 2026-11-21：P0 已完成并验证（9 tests passed，uvicorn 实机 SSE 验证）。
 >
-> 2026-11-21：P1 代码已完成（SQLAlchemy/Alembic、多轮历史、幂等、历史恢复、前端“新对话”），待安装 P1 依赖、启动 PostgreSQL 并执行迁移后跑测试。
+> 2026-11-21：P1 代码已完成（SQLAlchemy/Alembic、多轮历史、幂等、历史恢复、前端“新对话”）。
+>
+> 2026-11-21：P2 已完成并验证。26 tests passed；迁移 `0002_summaries` 已应用；
+> token 预算 + 滚动摘要（`qwen-turbo`）已接入，上下文不再按 20 条消息硬截断。
 
 1. `pyproject.toml`：fastapi、uvicorn、pydantic-settings、httpx、openai、pytest、pytest-asyncio、respx、ruff。
 2. `app/config.py`：环境变量配置。

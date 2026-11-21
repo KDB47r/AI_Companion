@@ -77,8 +77,10 @@ Phase 2：
 > 2026-11-21：P0 已实现并验证。`pytest -q` 9 passed；uvicorn 实机 curl 得到
 > `message_start → content_delta × 5 → usage → message_end`。浏览器端可再手动验收停止按钮。
 >
-> 2026-11-21：P1 代码已完成（SQLAlchemy + Alembic + PostgreSQL、多轮历史、幂等、前端历史恢复）。
-> 待安装 P1 依赖、启动 `ai-pg`、执行 `alembic upgrade head` 后跑测试。
+> 2026-11-21：P1 已完成（SQLAlchemy + Alembic + PostgreSQL、多轮历史、幂等、前端历史恢复）。
+>
+> 2026-11-21：P2 已完成并验证。26 tests passed；PostgreSQL 迁移 `0002_summaries` 已应用；
+> 摘要模型使用 `qwen-turbo`，上下文按 token 预算装配，历史压缩成滚动摘要。
 
 ## 7. 待确认
 
@@ -90,10 +92,9 @@ Phase 2：
 
 ## 8. 下一步
 
-1. 安装 P1 依赖：`sqlalchemy[asyncio]`、`asyncpg`、`alembic`、`aiosqlite`。
-2. 启动 PostgreSQL（apt 或 Docker），执行 `alembic upgrade head`。
-3. 跑 `PYTHONPATH=. python -m pytest -q`，再用浏览器验收多轮历史恢复。
-4. 进入 P2：token 预算、滚动摘要、上下文裁剪。
+1. P1/P2 已完成：26 tests passed，迁移到 `0002_summaries`。
+2. 用浏览器长对话验收滚动摘要（或临时调小 `CONTEXT_WINDOW_TOKENS`）。
+3. 进入 P3：工具调用循环 + MCP Client + 本地/远程 MCP Server。
 
 ## 9. 新会话启动提示
 

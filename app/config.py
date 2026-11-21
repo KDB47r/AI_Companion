@@ -25,6 +25,17 @@ class Settings(BaseSettings):
     max_history_messages: int = 20
     dev_user_external_id: str = "dev-user"
 
+    # P2 context budget + rolling summary
+    context_window_tokens: int = 32768
+    summary_enabled: bool = True
+    summary_trigger_ratio: float = 0.7
+    summary_keep_recent_messages: int = 6
+    summary_max_tokens: int = 512
+    summary_model: str = "qwen-turbo"
+    summary_temperature: float = 0.2
+    summary_sync: bool = False
+    token_safety_margin: float = 1.15
+
     llm_provider: str = "fake"
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_api_key: str = ""

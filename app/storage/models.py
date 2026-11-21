@@ -135,3 +135,29 @@ class Run(Base):
         nullable=False,
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Summary(Base):
+    __tablename__ = "summaries"
+    __table_args__ = (
+        Index("idx_summaries_conv_created", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id"),
+        nullable=False,
+    )
+    up_to_message_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    up_to_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
