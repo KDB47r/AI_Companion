@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Companion · P0</title>
+  <title>AI Companion · P1</title>
   <style>
     * { box-sizing: border-box; }
 
@@ -58,6 +58,12 @@
       margin: 4px 0 0;
       color: var(--muted);
       font-size: 12px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
     }
 
     .token {
@@ -160,7 +166,7 @@
       font-weight: 600;
     }
 
-    #stop {
+    #stop, #new-chat {
       background: var(--panel-2);
       color: var(--text);
     }
@@ -168,6 +174,7 @@
     @media (max-width: 560px) {
       .app { padding: 12px; }
       header { align-items: flex-start; flex-direction: column; }
+      .header-actions { width: 100%; justify-content: space-between; }
       .token { width: 100%; }
       .bubble { max-width: 90%; }
     }
@@ -178,12 +185,15 @@
     <header>
       <div>
         <h1>AI Companion</h1>
-        <p class="status" id="status">P0 · 单轮 SSE（多轮在 P1）</p>
+        <p class="status" id="status">P1 · 多轮对话</p>
       </div>
-      <label class="token">
-        Dev Token
-        <input id="token" value="dev-token" autocomplete="off" />
-      </label>
+      <div class="header-actions">
+        <button type="button" id="new-chat">新对话</button>
+        <label class="token">
+          Dev Token
+          <input id="token" value="dev-token" autocomplete="off" />
+        </label>
+      </div>
     </header>
 
     <section id="messages" class="messages" aria-live="polite"></section>
@@ -202,16 +212,16 @@
     const inputEl = document.getElementById("input");
     const sendEl = document.getElementById("send");
     const stopEl = document.getElementById("stop");
+    const newChatEl = document.getElementById("new-chat");
     const statusEl = document.getElementById("status");
     const tokenEl = document.getElementById("token");
 
-    tokenEl.value = localStorage.getItem("ai_companion_token") || "dev-token";
-    tokenEl.addEventListener("change", () => {
-      localStorage.setItem("ai_companion_token", tokenEl.value);
-    });
+    const TOKEN_KEY = "ai_companion_token";
+    const CONVERSATION_KEY = "ai_companion_conversation_id";
 
+    tokenEl.value = localStorage.getItem(TOKEN_KEY) || "dev-token";
     let controller = null;
-    let conversationId = null;
+    let conversationId = localStorage.getItem(CONVERSATION_KEY);
 
     function newId() {
       if (crypto.randomUUID) return crypto.randomUUID();
@@ -230,7 +240,56 @@
     function setBusy(busy) {
       sendEl.disabled = busy;
       stopEl.disabled = !busy;
-      statusEl.textContent = busy ? "P0 · 流式输出中…" : "P0 · 单轮 SSE（多轮在 P1）";
+      statusEl.textContent = busy ? "P1 · 流式输出中…" : "P1 · 多轮对话";
+    }
+
+    function statusSuffix(status) {
+      if (status === "aborted") return "\n[已停止]";
+      if (status === "failed") return "\n[生成失败]";
+      return "";
+    }
+
+    function clearConversation() {
+      conversationId = null;
+      localStorage.removeItem(CONVERSATION_KEY);
+      messagesEl.innerHTML = "";
+      statusEl.textContent = "P1 · 新对话";
+    }
+
+    async function restoreConversation() {
+      if (!conversationId) {
+        statusEl.textContent = "P1 · 多轮对话";
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/v1/conversations/${encodeURIComponent(conversationId)}/messages?limit=50`,
+          { headers: { "Authorization": `Bearer ${tokenEl.value}` } }
+        );
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            clearConversation();
+          } else if (response.status === 401) {
+            statusEl.textContent = "Token 无效，历史未加载";
+          }
+          return;
+        }
+
+        const data = await response.json();
+        const items = data.messages || [];
+        for (const message of items) {
+          const suffix = message.role === "assistant" ? statusSuffix(message.status) : "";
+          const text = message.content ? `${message.content}${suffix}` : suffix.trim();
+          addBubble(message.role, text);
+        }
+        statusEl.textContent = items.length
+          ? `P1 · 已恢复 ${items.length} 条消息`
+          : "P1 · 多轮对话";
+      } catch {
+        statusEl.textContent = "P1 · 历史加载失败";
+      }
     }
 
     function parseEventBlock(block) {
@@ -303,6 +362,9 @@
 
             if (event === "message_start") {
               conversationId = payload.conversation_id || conversationId;
+              if (conversationId) {
+                localStorage.setItem(CONVERSATION_KEY, conversationId);
+              }
             } else if (event === "content_delta") {
               assistantEl.textContent += payload.delta || "";
               messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -346,6 +408,19 @@
     stopEl.addEventListener("click", () => {
       if (controller) controller.abort();
     });
+
+    newChatEl.addEventListener("click", () => {
+      if (controller) controller.abort();
+      clearConversation();
+    });
+
+    tokenEl.addEventListener("change", () => {
+      localStorage.setItem(TOKEN_KEY, tokenEl.value);
+      messagesEl.innerHTML = "";
+      restoreConversation();
+    });
+
+    restoreConversation();
   </script>
 </body>
 </html>

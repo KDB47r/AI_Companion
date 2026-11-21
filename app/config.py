@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     app_name: str = "AI Companion"
     dev_token: str = "dev-token"
 
+    database_url: str = (
+        "postgresql+asyncpg://postgres:ai_companion@127.0.0.1:5432/ai_companion"
+    )
+    db_echo: bool = False
+    max_history_messages: int = 20
+    dev_user_external_id: str = "dev-user"
+
     llm_provider: str = "fake"
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_api_key: str = ""

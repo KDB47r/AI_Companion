@@ -2,7 +2,7 @@
 
 一个用于学习大模型后端开发的陪伴型 AI 聊天服务。目标不是做模型训练，而是把 **上下文工程、提示词工程、工具调用/MCP、SSE 流式输出** 这条链路亲手实现一遍。
 
-> 当前状态：P0 已实现并验证（9 个测试通过；uvicorn 实机 curl 验证 SSE 事件序列）。多轮与持久化在 P1。
+> 当前状态：P1 已实现（多轮上下文、PostgreSQL 持久化、历史恢复、幂等）。P2 做 token 预算与摘要。
 
 ## 学习目标
 
@@ -27,19 +27,59 @@
 
 ## 快速开始
 
+### 1. 启动 PostgreSQL
+
+**方式 A：apt 安装（推荐，避免 Docker Hub 拉取问题）**
+
+```bash
+sudo apt update
+sudo apt install -y postgresql
+sudo service postgresql start
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'ai_companion';"
+sudo -u postgres createdb ai_companion
+```
+
+如果提示数据库已存在，忽略即可。`pg_isready` 应返回 `accepting connections`。
+
+**方式 B：Docker**
+
+```bash
+sudo docker run -d --name ai-pg \
+  -e POSTGRES_PASSWORD=ai_companion \
+  -e POSTGRES_DB=ai_companion \
+  -p 5432:5432 \
+  -v ai-pg-data:/var/lib/postgresql/data \
+  pgvector/pgvector:pg16
+```
+
+如果希望免 sudo：`sudo usermod -aG docker $USER && newgrp docker`。
+
+> P1 不需要 pgvector 扩展；P4 做长期记忆时再安装。Docker Hub 拉取超时时，直接用方式 A。
+
+### 2. 安装依赖并迁移
+
 ```bash
 cd ~/Linux/AI_Companion
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+alembic upgrade head
+uvicorn app.asgi:app --reload --port 8000
 ```
 
 如果 `python3 -m venv` 提示缺少 ensurepip，先执行：
 
 ```bash
 sudo apt update && sudo apt install -y python3-venv
+```
+
+如果 editable install 的构建依赖拉取失败，可以绕过它直接装：
+
+```bash
+pip install fastapi "uvicorn[standard]" pydantic-settings httpx openai python-dotenv \
+  "sqlalchemy[asyncio]" asyncpg alembic pytest pytest-asyncio respx ruff aiosqlite \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 打开 <http://localhost:8000>。默认 `LLM_PROVIDER=fake`，不需要 API Key。
@@ -62,9 +102,18 @@ curl -N -X POST http://localhost:8000/v1/chat/stream \
   -d '{"message":"你好"}'
 ```
 
-跑测试：
+跑测试（使用 SQLite 内存库，不需要 PostgreSQL）：
 
 ```bash
-pytest -q
+PYTHONPATH=. python -m pytest -q
 ```
+
+P1 新增接口：
+
+- `GET /v1/conversations`：会话列表
+- `GET /v1/conversations/{id}/messages`：历史消息
+- `POST /v1/conversations`：新建会话
+- `DELETE /v1/conversations/{id}`：归档会话
+
+`POST /v1/chat/stream` 现在会自动创建/续用 `conversation_id`，并把最近 20 条历史一起发给模型。
 

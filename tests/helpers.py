@@ -1,5 +1,9 @@
 import json
 
+from httpx import AsyncClient
+
+from app.config import Settings
+
 
 def parse_sse(text: str) -> list[dict]:
     """Parse the subset of SSE used by this service into dicts."""
@@ -39,3 +43,40 @@ def parse_sse(text: str) -> list[dict]:
         )
 
     return events
+
+
+def text_of(events: list[dict]) -> str:
+    return "".join(
+        event["data"]["delta"]
+        for event in events
+        if event["event"] == "content_delta"
+    )
+
+
+async def stream_chat(
+    client: AsyncClient,
+    settings: Settings,
+    message: str,
+    *,
+    conversation_id: str | None = None,
+    client_message_id: str | None = None,
+) -> list[dict]:
+    payload: dict[str, object] = {"message": message}
+    if conversation_id is not None:
+        payload["conversation_id"] = conversation_id
+    if client_message_id is not None:
+        payload["client_message_id"] = client_message_id
+
+    headers = {"Authorization": f"Bearer {settings.dev_token}"}
+    async with client.stream(
+        "POST",
+        "/v1/chat/stream",
+        headers=headers,
+        json=payload,
+    ) as response:
+        assert response.status_code == 200
+        body = ""
+        async for chunk in response.aiter_text():
+            body += chunk
+
+    return parse_sse(body)

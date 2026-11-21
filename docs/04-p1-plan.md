@@ -1,6 +1,6 @@
 # 04 · P1 技术方案：多轮对话与持久化
 
-> 状态：草案，待确认。P1 只做“当前会话的短期记忆”；摘要/长期记忆/RAG 在 P2/P4，MCP 在 P3。
+> 状态：已实现，待安装依赖并验证。P1 只做“当前会话的短期记忆”；摘要/长期记忆/RAG 在 P2/P4，MCP 在 P3。
 
 ## 1. 目标与非目标
 
@@ -39,11 +39,11 @@ system prompt + 当前用户消息
 
 | 组件 | 选择 | 说明 |
 |---|---|---|
-| 数据库 | PostgreSQL 16 + pgvector 镜像 | P1 不用向量，但先统一镜像，P4 不换库 |
+| 数据库 | PostgreSQL（apt 或 Docker） | P1 不需要 pgvector；P4 再加向量扩展 |
 | ORM | SQLAlchemy 2.0 async | 与 FastAPI 的 async 一致 |
 | 驱动 | asyncpg | PostgreSQL 异步驱动 |
 | 迁移 | Alembic | 表结构版本化 |
-| 容器 | `docker run`（sudo） | 当前 Docker 需要 sudo，且没有 compose 插件 |
+| 部署 | apt 优先，Docker 可选 | Docker Hub 拉取超时时直接用 apt |
 
 Redis 当前已在 6379 运行，但 P1 不使用；幂等靠数据库唯一约束。
 
@@ -177,7 +177,19 @@ DB_ECHO=false
 
 ## 10. 启动与迁移
 
-### 10.1 启动 PostgreSQL（用户执行，需 sudo）
+### 10.1 启动 PostgreSQL（用户执行）
+
+方式 A：apt（推荐，避免 Docker Hub 超时）
+
+```bash
+sudo apt update
+sudo apt install -y postgresql
+sudo service postgresql start
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'ai_companion';"
+sudo -u postgres createdb ai_companion
+```
+
+方式 B：Docker
 
 ```bash
 sudo docker run -d --name ai-pg \
@@ -188,19 +200,16 @@ sudo docker run -d --name ai-pg \
   pgvector/pgvector:pg16
 ```
 
-如果希望免 sudo：
-
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
 验证：
 
 ```bash
+pg_isready
+# 或
 sudo docker ps
 sudo docker logs ai-pg
 ```
+
+P1 不需要 pgvector；P4 再加。
 
 ### 10.2 安装依赖
 
@@ -225,7 +234,8 @@ alembic upgrade head
 
 ### 集成测试
 
-- 使用 PostgreSQL 测试库 `ai_companion_test`，测试前 `create_all` 或跑迁移，测试后清理。
+- 测试使用 SQLite 内存库（`aiosqlite`），测试前 `create_all`，测试后销毁；不依赖本地 PostgreSQL。
+- PostgreSQL 迁移通过手动 `alembic upgrade head` + 浏览器/curl 验收。
 - `RecordingProvider` 记录收到的 messages：
   - 第一轮“我叫小明”；
   - 第二轮“我叫什么”；

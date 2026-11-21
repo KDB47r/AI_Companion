@@ -76,6 +76,9 @@ Phase 2：
 
 > 2026-11-21：P0 已实现并验证。`pytest -q` 9 passed；uvicorn 实机 curl 得到
 > `message_start → content_delta × 5 → usage → message_end`。浏览器端可再手动验收停止按钮。
+>
+> 2026-11-21：P1 代码已完成（SQLAlchemy + Alembic + PostgreSQL、多轮历史、幂等、前端历史恢复）。
+> 待安装 P1 依赖、启动 `ai-pg`、执行 `alembic upgrade head` 后跑测试。
 
 ## 7. 待确认
 
@@ -87,10 +90,10 @@ Phase 2：
 
 ## 8. 下一步
 
-1. 安装依赖并跑测试（命令见 `README.md`）。
-2. 用 `LLM_PROVIDER=fake` 验收 SSE：`curl -N` 和浏览器都应看到打字机输出。
-3. 配置真实 Provider（DeepSeek/Qwen），再用 curl/浏览器验收。
-4. 进入 P1：PostgreSQL、多轮历史、角色卡。
+1. 安装 P1 依赖：`sqlalchemy[asyncio]`、`asyncpg`、`alembic`、`aiosqlite`。
+2. 启动 PostgreSQL（apt 或 Docker），执行 `alembic upgrade head`。
+3. 跑 `PYTHONPATH=. python -m pytest -q`，再用浏览器验收多轮历史恢复。
+4. 进入 P2：token 预算、滚动摘要、上下文裁剪。
 
 ## 9. 新会话启动提示
 

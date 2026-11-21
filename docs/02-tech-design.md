@@ -247,6 +247,7 @@ CREATE INDEX idx_messages_external ON messages(external_message_id);
 CREATE TABLE runs (
   id                   TEXT PRIMARY KEY,         -- r_xxx
   conversation_id      TEXT NOT NULL REFERENCES conversations(id),
+  user_message_id      TEXT REFERENCES messages(id),
   assistant_message_id TEXT REFERENCES messages(id),
   status               TEXT NOT NULL,            -- running/completed/aborted/failed
   model                TEXT,
@@ -502,7 +503,9 @@ mcp:
 
 ## 13. P0 实现步骤
 
-> 2026-11-21：P0 代码已完成，包含 `/v1/chat/stream`、FakeProvider、OpenAI 兼容 Provider、最小前端和测试。依赖安装后执行 `pytest -q` 与浏览器验收。
+> 2026-11-21：P0 已完成并验证（9 tests passed，uvicorn 实机 SSE 验证）。
+>
+> 2026-11-21：P1 代码已完成（SQLAlchemy/Alembic、多轮历史、幂等、历史恢复、前端“新对话”），待安装 P1 依赖、启动 PostgreSQL 并执行迁移后跑测试。
 
 1. `pyproject.toml`：fastapi、uvicorn、pydantic-settings、httpx、openai、pytest、pytest-asyncio、respx、ruff。
 2. `app/config.py`：环境变量配置。

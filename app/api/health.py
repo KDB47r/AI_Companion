@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request, status
+from sqlalchemy import text
 
 router = APIRouter(tags=["health"])
 
@@ -9,6 +10,14 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/readyz")
-async def readyz() -> dict[str, str]:
-    # P0 has no external dependencies yet. P1 will check PostgreSQL/Redis here.
+async def readyz(request: Request) -> dict[str, str]:
+    try:
+        async with request.app.state.session_factory() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        ) from exc
+
     return {"status": "ok"}

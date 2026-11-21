@@ -4,22 +4,32 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
 from app.main import create_app
+from app.storage import models  # noqa: F401 - register tables on Base.metadata
+from app.storage.db import Base
 
 
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
         dev_token="test-token",
+        database_url="sqlite+aiosqlite:///:memory:",
         llm_provider="fake",
         fake_response="你好呀，我是小火。",
         fake_delay_seconds=0.0,
         sse_heartbeat_seconds=0.0,
+        max_history_messages=20,
     )
 
 
-@pytest.fixture
-def app(settings: Settings):
-    return create_app(settings)
+@pytest_asyncio.fixture
+async def app(settings: Settings):
+    application = create_app(settings)
+    async with application.state.engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    yield application
+
+    await application.state.engine.dispose()
 
 
 @pytest_asyncio.fixture
