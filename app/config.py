@@ -22,7 +22,6 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://postgres:ai_companion@127.0.0.1:5432/ai_companion"
     )
     db_echo: bool = False
-    max_history_messages: int = 20
     dev_user_external_id: str = "dev-user"
 
     # P2 context budget + rolling summary
@@ -44,6 +43,34 @@ class Settings(BaseSettings):
     max_tool_result_tokens: int = 2000
     tool_permission_mode: str = "readonly_auto"
     mcp_config_path: str = "config/mcp_servers.json"
+
+    # P4.1 long-term memory
+    memory_enabled: bool = True
+    embedding_model: str = "text-embedding-v3"
+    embedding_dimensions: int = 1024
+    embedding_timeout_seconds: float = 20.0
+    memory_top_k: int = 5
+    memory_min_similarity: float = 0.35
+    memory_max_tokens: int = 600
+    memory_extract_every_turns: int = 3
+    memory_extraction_model: str = "qwen-turbo"
+    memory_extraction_temperature: float = 0.1
+    memory_extraction_max_messages: int = 6
+    memory_min_confidence: float = 0.6
+    memory_max_content_chars: int = 500
+    memory_dedupe_similarity: float = 0.9
+    memory_sync: bool = False
+
+    # P4.2 document RAG
+    rag_enabled: bool = True
+    rag_top_k: int = 5
+    rag_min_similarity: float = 0.35
+    rag_max_tokens: int = 1200
+    rag_chunk_tokens: int = 500
+    rag_chunk_overlap: int = 50
+    rag_max_file_bytes: int = 2_000_000
+    rag_max_chunks: int = 100
+    rag_embedding_batch_size: int = 10
 
     llm_provider: str = "fake"
     llm_base_url: str = "https://api.deepseek.com/v1"

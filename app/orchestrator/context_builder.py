@@ -38,10 +38,18 @@ def load_system_prompt() -> str:
         return DEFAULT_SYSTEM_PROMPT
 
 
-def _system_content(summary: str | None) -> str:
+def _system_content(
+    summary: str | None,
+    memory: str | None,
+    rag: str | None,
+) -> str:
     content = load_system_prompt()
     if summary:
         content += SUMMARY_PREFIX + summary
+    if memory:
+        content += "\n\n" + memory
+    if rag:
+        content += "\n\n" + rag
     return content
 
 
@@ -55,6 +63,8 @@ def build_context(
     safety_margin: float,
     summary_trigger_ratio: float,
     tool_spec_tokens: int = 0,
+    memory: str | None = None,
+    rag: str | None = None,
 ) -> BuildResult:
     """Fit system + summary + recent history + current message into a token budget.
 
@@ -63,7 +73,7 @@ def build_context(
     ``needs_summary`` so the caller can schedule a rolling summary.
     """
 
-    system_content = _system_content(summary)
+    system_content = _system_content(summary, memory, rag)
     current = Message(role="user", content=user_message)
 
     fixed_raw = estimate_text(system_content) + estimate_message(current)

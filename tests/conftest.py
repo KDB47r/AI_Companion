@@ -17,8 +17,9 @@ def settings() -> Settings:
         fake_response="你好呀，我是小火。",
         fake_delay_seconds=0.0,
         sse_heartbeat_seconds=0.0,
-        max_history_messages=20,
         tools_enabled=False,
+        memory_enabled=False,
+        rag_enabled=False,
     )
 
 

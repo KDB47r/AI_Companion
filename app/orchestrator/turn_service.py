@@ -31,6 +31,7 @@ class TurnInProgress(Exception):
 @dataclass(slots=True)
 class PreparedTurn:
     conversation_id: str
+    user_id: int
     user_message_id: str
     assistant_message_id: str
     run_id: str
@@ -71,6 +72,8 @@ class TurnService:
         client_message_id: str | None,
         persona_id: str,
         tool_spec_tokens: int = 0,
+        memory_text: str | None = None,
+        rag_text: str | None = None,
     ) -> PreparedTurn | ReplayTurn:
         async with self._session_factory() as session:
             conversations = ConversationRepository(session)
@@ -139,6 +142,8 @@ class TurnService:
                 safety_margin=self._settings.token_safety_margin,
                 summary_trigger_ratio=self._settings.summary_trigger_ratio,
                 tool_spec_tokens=tool_spec_tokens,
+                memory=memory_text,
+                rag=rag_text,
             )
 
             user_row = await messages.create(
@@ -168,6 +173,7 @@ class TurnService:
 
             return PreparedTurn(
                 conversation_id=conversation.id,
+                user_id=user_id,
                 user_message_id=user_row.id,
                 assistant_message_id=f"m_{uuid4().hex}",
                 run_id=run.id,

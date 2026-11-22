@@ -60,6 +60,31 @@ async def chat_stream(
         tools = request.app.state.tool_registry.list_specs()
         tool_spec_tokens = request.app.state.tool_registry.spec_token_estimate()
 
+    memory_text = None
+    rag_text = None
+    if settings.memory_enabled or settings.rag_enabled:
+        query_vector = None
+        try:
+            query_vector = await request.app.state.embedding_provider.embed(
+                payload.message
+            )
+        except Exception:
+            logger.exception("query embedding failed user_id=%s", user.id)
+
+        if query_vector is not None:
+            if settings.memory_enabled:
+                memory_text = await request.app.state.memory_service.retrieve(
+                    user.id,
+                    payload.message,
+                    query_vector=query_vector,
+                )
+            if settings.rag_enabled:
+                rag_text = await request.app.state.rag_service.retrieve(
+                    user.id,
+                    payload.message,
+                    query_vector=query_vector,
+                )
+
     try:
         prepared = await service.prepare(
             user_id=user.id,
@@ -68,6 +93,8 @@ async def chat_stream(
             client_message_id=payload.client_message_id,
             persona_id=payload.persona_id,
             tool_spec_tokens=tool_spec_tokens,
+            memory_text=memory_text,
+            rag_text=rag_text,
         )
     except ConversationNotFound as exc:
         raise HTTPException(
@@ -255,6 +282,19 @@ async def _new_turn_events(
                 await summary_service.maybe_summarize(prepared.conversation_id)
             else:
                 summary_service.schedule(prepared.conversation_id)
+
+        if settings.memory_enabled:
+            memory_service = request.app.state.memory_service
+            if settings.memory_sync:
+                await memory_service.maybe_extract(
+                    prepared.conversation_id,
+                    prepared.user_id,
+                )
+            else:
+                memory_service.schedule(
+                    prepared.conversation_id,
+                    prepared.user_id,
+                )
 
 
 async def _persist_safely(coro) -> None:

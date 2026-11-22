@@ -515,6 +515,12 @@ mcp:
 >
 > 2026-11-22：P3 第一阶段完成。39 tests passed；迁移 `0003_tool_calls` 已应用；
 > AgentLoop、ToolRegistry、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气已接入。
+>
+> 2026-11-22：P4.1 完成。48 tests passed；迁移 `0004_memories`；
+> Qwen text-embedding-v3 + pgvector 0.8.7 + HNSW 的长期记忆检索已接入。
+>
+> 2026-11-22：P4.2 完成。57 tests passed；迁移 `0005_documents`；
+> 文档上传、切块、embedding、top-5 检索与引用已接入。
 
 1. `pyproject.toml`：fastapi、uvicorn、pydantic-settings、httpx、openai、pytest、pytest-asyncio、respx、ruff。
 2. `app/config.py`：环境变量配置。

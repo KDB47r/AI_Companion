@@ -1,6 +1,8 @@
 # 07 · P4 技术方案：长期记忆与 RAG
 
-> 状态：草案，待讨论。本文先列技术节点、候选方案、前置条件和推荐默认值；确认后再写代码。
+> 状态：P4.1 与 P4.2 均已实现并验证。
+>
+> 验证记录（2026-11-22）：57 tests passed；迁移 `0005_documents`；真实文档入库/检索/删除验证通过，检索片段带 `[文档：标题#chunk]` 来源；P4.1 语义检索相似度 0.6423。
 >
 > 目标：让 AI 在“跨会话”和“知识库”两个维度上拥有长期记忆，而不是只靠当前对话摘要。
 
@@ -480,24 +482,79 @@ migrations/versions/0004_long_term_memory.py
 
 ## 13. 前置条件与风险
 
-1. **pgvector 未安装**：当前 PG 14.24 没有 vector 扩展，apt 源也没有现成包。需要源码编译、PGDG 或独立向量库。这是 P4 最大的前置风险。
+1. **pgvector 已就绪**：2026-11-22 已源码安装 pgvector 0.8.7，并在 `ai_companion` 库执行 `CREATE EXTENSION vector`，`SELECT '[1,2,3]'::vector` 验证通过。安装记录见 `docs/08-pgvector-install.md`。
 2. **embedding API 兼容性**：DashScope OpenAI 兼容模式是否支持 embeddings、模型名/维度，需要先验证。
 3. **embedding 成本/隐私**：每次检索和抽取都会调用 API；文档内容会发给 Provider。
 4. **记忆质量**：抽取不准会污染长期记忆；需要评测和删除能力。
 5. **冲突/时效**：用户偏好会变化，不能简单覆盖；需要时间/置信度策略。
 6. **数据迁移**：维度变更需要重建向量列/索引。
 
-## 14. 待你拍板
+## 14. 已确认（2026-11-22）
 
-| # | 决策 | 推荐 |
+| # | 决策 | 结论 |
 |---|---|---|
-| 1 | P4 先做结构化记忆（P4.1），文档 RAG 后做（P4.2）？ | 是 |
-| 2 | Embedding 用 Qwen API，1024 维？ | 先试 Qwen，接口可替换 |
-| 3 | pgvector 怎么装：源码编译 / PGDG / 独立向量库？ | 先试源码编译；失败再讨论 |
-| 4 | 记忆抽取每 3 轮，qwen-turbo，JSON 输出？ | 是 |
-| 5 | 检索先用相似度阈值 0.35 + top-5，不做时间/重要性加权？ | 是 |
-| 6 | 自动检索注入，暂不做 `memory_search` 工具？ | 是 |
-| 7 | 记忆按 user_id 隔离，提供列表/删除接口？ | 是 |
-| 8 | P4 先纯文本/Markdown，PDF 后置？ | 是 |
+| 1 | 架构 | **混合**：结构化记忆 + 文档 RAG；实现顺序仍先 P4.1，再 P4.2，最后在同一 prompt 合并注入 |
+| 2 | Embedding | Qwen `text-embedding-v3`，1024 维；接口抽象成 `EmbeddingProvider` |
+| 3 | 向量库 | pgvector；**源码编译 v0.8.7**（详见 `docs/08-pgvector-install.md`） |
+| 4 | 记忆抽取 | 每 3 轮或摘要触发，`qwen-turbo`，JSON 输出 |
+| 5 | 检索 | 相似度阈值 0.35 + top-5；暂不做时间/重要性加权 |
+| 6 | 注入 | system prompt；memory ≤600 token，RAG ≤1200 token |
+| 7 | 检索方式 | 自动检索；`memory_search` 工具后置 |
+| 8 | 隐私 | 按 `user_id` 隔离；提供列表/删除接口；不存敏感信息 |
+| 9 | 文档 | 先只支持 `.txt` / `.md`；PDF 后置 |
+| 10 | 评测 | P5 再做；P4 先手动 + 小样本 |
 
-确认后，建议先做一个“无向量版”的最小 P4.1 验证抽取/去重/注入，再解决 pgvector 接入。这样即使向量环境卡住，也能先学习记忆系统的核心逻辑。
+### 实现顺序
+
+```text
+共享基础设施：EmbeddingProvider + pgvector + 迁移 0004
+  → P4.1 结构化记忆：抽取/去重/检索/注入
+  → P4.2 文档 RAG：上传/切块/embedding/检索
+  → 混合：同一轮同时检索 memories + document_chunks
+```
+
+pgvector 安装细节见 `docs/08-pgvector-install.md`。
+
+## 15. P4.1 实现记录
+
+已新增：
+
+```text
+app/memory/embedding.py   # Qwen text-embedding-v3
+app/memory/extractor.py   # 对话 → JSON 记忆
+app/memory/store.py       # pgvector 原生 SQL 存储/检索
+app/memory/service.py     # 抽取/去重/检索/注入
+app/api/memories.py       # 列表/删除
+migrations/versions/0004_memories.py
+```
+
+验证：
+
+- `pytest -q`：48 passed
+- `alembic current`：`0004_memories (head)`
+- `memories.embedding` 类型：`vector`
+- HNSW 索引：`idx_memories_embedding`
+- 真实 embedding 检索：`我喜欢什么` → `用户喜欢猫`，相似度 `0.6423`
+- 测试数据清理后 `memories` 行数：0
+
+## 16. P4.2 实现记录
+
+已新增：
+
+```text
+app/rag/chunker.py      # 500 token 切块 + 50 overlap
+app/rag/store.py        # documents/document_chunks + pgvector 检索
+app/rag/service.py      # ingest / retrieve / list / delete
+app/api/documents.py    # 上传（raw text 或 JSON）、列表、删除
+migrations/versions/0005_documents.py
+```
+
+验证：
+
+- `pytest -q`：57 passed
+- `alembic current`：`0005_documents (head)`
+- `documents` / `document_chunks` 表与 HNSW 索引已创建
+- 真实文档“整机保修 36 个月”入库 → 检索“整机保修多久”命中并带 `[文档：测试产品手册.md#1]`
+- 删除文档后 `documents` / `document_chunks` 行数为 0
+
+上传方式：原始文本 body + `X-Filename`，或 JSON `{title, content}`；不依赖 multipart/前端 UI。

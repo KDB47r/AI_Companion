@@ -2,7 +2,7 @@
 
 一个用于学习大模型后端开发的陪伴型 AI 聊天服务。目标不是做模型训练，而是把 **上下文工程、提示词工程、工具调用/MCP、SSE 流式输出** 这条链路亲手实现一遍。
 
-> 当前状态：P3 第一阶段已实现（手写 AgentLoop、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气、`tool_calls` 审计；39 tests passed；PG 迁移 `0003_tool_calls` 已应用）。
+> 当前状态：P4.2 已实现并验证（长期记忆 + 文档 RAG；Qwen embedding + pgvector 0.8.7；57 tests passed；PG 迁移 `0005_documents` 已应用）。
 
 ## 学习目标
 
@@ -24,6 +24,12 @@
 - [架构设计](docs/01-architecture.md)
 - [技术方案：API、SSE、表结构、测试](docs/02-tech-design.md)
 - [Phase 2 与 MsgRail 的集成契约](docs/03-integration-contract.md)
+- [P1 方案：多轮与持久化](docs/04-p1-plan.md)
+- [P2 方案：token 预算与摘要](docs/05-p2-plan.md)
+- [P3 方案：AgentLoop 与 MCP](docs/06-p3-plan.md)
+- [P4 方案：长期记忆与 RAG](docs/07-p4-plan.md)
+- [pgvector 安装指南](docs/08-pgvector-install.md)
+- [消息与状态的生命周期](docs/09-message-lifecycle.md)
 
 ## 快速开始
 
@@ -188,4 +194,98 @@ sudo -u postgres psql -d ai_companion \
 ```
 
 Streamable HTTP 是第二阶段，尚未实现。
+
+## P4.1：长期记忆
+
+P4.1 已实现：
+
+- `memories` 表 + pgvector 0.8.7，`embedding vector(1024)` + HNSW 索引；
+- Qwen `text-embedding-v3` 生成 embedding；
+- 每 3 轮用 `qwen-turbo` 从对话中抽取 fact/preference/event；
+- 内容 hash + 相似度去重；
+- 每轮对话前按当前用户消息检索 top-5（阈值 0.35），注入 system prompt；
+- `GET /v1/memories`、`DELETE /v1/memories/{id}`、`DELETE /v1/memories`。
+
+配置默认值见 `.env.example`，可以先用：
+
+```dotenv
+MEMORY_ENABLED=true
+EMBEDDING_MODEL=text-embedding-v3
+EMBEDDING_DIMENSIONS=1024
+MEMORY_TOP_K=5
+MEMORY_MIN_SIMILARITY=0.35
+MEMORY_MAX_TOKENS=600
+MEMORY_EXTRACT_EVERY_TURNS=3
+MEMORY_EXTRACTION_MODEL=qwen-turbo
+MEMORY_SYNC=false
+```
+
+验证：
+
+```bash
+# 聊 3 轮后查记忆
+curl -H "Authorization: Bearer dev-token" http://localhost:8000/v1/memories
+
+# 直接查库
+PGPASSWORD=ai_companion psql -h 127.0.0.1 -U postgres -d ai_companion \
+  -c "SELECT id, kind, content, confidence, importance FROM memories ORDER BY id DESC LIMIT 10;"
+```
+
+关闭记忆：`MEMORY_ENABLED=false`，聊天会跳过 embedding/检索/抽取。
+
+> 注意：开启后每轮对话前会调用一次 embedding，增加少量延迟和 token 成本；抽取每 3 轮用一次 qwen-turbo。
+
+## P4.2：文档 RAG
+
+已实现：
+
+- `documents` / `document_chunks` 表 + pgvector HNSW；
+- 只支持 UTF-8 的 `.txt` / `.md`，单文件默认上限 2 MB；
+- 切块：默认 500 token/块，50 token overlap；
+- 上传时用 Qwen `text-embedding-v3` 批量生成 embedding；
+- 对话前与长期记忆共用一次 query embedding，检索 top-5（阈值 0.35）；
+- 注入格式带来源：`[文档：标题#chunk]`；
+- `GET /v1/documents`、`DELETE /v1/documents/{id}`。
+
+上传不需要前端 UI，用 curl 直接传原始文本：
+
+```bash
+cat > /tmp/test.md <<'EOF'
+# 产品手册
+
+星际产品 X100 整机保修期为 36 个月。
+电池保修期为 12 个月。
+EOF
+
+curl -X POST http://localhost:8000/v1/documents \
+  -H "Authorization: Bearer dev-token" \
+  -H "Content-Type: text/markdown" \
+  -H "X-Filename: test.md" \
+  --data-binary @/tmp/test.md
+```
+
+也可以用 JSON：
+
+```bash
+curl -X POST http://localhost:8000/v1/documents \
+  -H "Authorization: Bearer dev-token" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"test.md","content":"保修期为 36 个月。"}'
+```
+
+查看 / 删除：
+
+```bash
+curl -H "Authorization: Bearer dev-token" http://localhost:8000/v1/documents
+curl -X DELETE -H "Authorization: Bearer dev-token" http://localhost:8000/v1/documents/1
+```
+
+上传后问“整机保修多久”，回答应引用文档内容；查库：
+
+```bash
+PGPASSWORD=ai_companion psql -h 127.0.0.1 -U postgres -d ai_companion \
+  -c "SELECT d.id, d.title, count(c.id) AS chunks FROM documents d LEFT JOIN document_chunks c ON c.document_id=d.id GROUP BY d.id, d.title;"
+```
+
+关闭 RAG 检索：`RAG_ENABLED=false`。上传接口仍可用，但聊天不会注入文档片段。
 

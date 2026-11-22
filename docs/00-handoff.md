@@ -85,6 +85,12 @@ Phase 2：
 > 2026-11-22：P3 第一阶段已完成。39 tests passed；迁移 `0003_tool_calls` 已应用；
 > 手写 AgentLoop、ToolRegistry、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气已接入并验证。
 > Streamable HTTP 尚未实现。
+>
+> 2026-11-22：P4.1 已实现并验证。48 tests passed；迁移 `0004_memories`；
+> Qwen `text-embedding-v3` + pgvector 0.8.7 语义检索验证通过（相似度 0.6423）。
+>
+> 2026-11-22：P4.2 已实现并验证。57 tests passed；迁移 `0005_documents`；
+> `.txt`/`.md` 上传、500 token 切块、embedding、top-5 检索、引用和删除均验证通过。
 
 ## 7. 待确认
 
@@ -96,10 +102,10 @@ Phase 2：
 
 ## 8. 下一步
 
-1. P3 第一阶段已验证：MCP stdio 时间、Open-Meteo 天气、AgentLoop、SSE 工具事件和审计都正常。
-2. P3 第二阶段：本地 Streamable HTTP MCP Server。
-3. 进入 P4：长期记忆/RAG（先解决 pgvector 安装）。
-4. P5：观测与评测。
+1. P4.1/P4.2 已验证：长期记忆 + 文档 RAG。
+2. P5：观测与评测（TTFT、token、工具调用、记忆/RAG 命中、评测集）。
+3. P3 第二阶段的 Streamable HTTP MCP 可并行后置。
+4. 记忆抽取的 429 退避与状态化抽取仍待优化。
 
 ## 9. 新会话启动提示
 
