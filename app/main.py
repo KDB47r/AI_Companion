@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,16 +11,29 @@ from app.api.conversations import router as conversations_router
 from app.api.health import router as health_router
 from app.config import Settings, get_settings
 from app.llm.registry import build_provider
+from app.mcp.manager import MCPClientManager
 from app.observability.logging import configure_logging
 from app.orchestrator.summary_service import SummaryService
 from app.storage.db import build_engine, build_session_factory
+from app.tools.local import register_local_tools
+from app.tools.recorder import ToolCallRecorder
+from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    try:
+        await app.state.mcp_manager.start()
+    except Exception:
+        logger.exception("failed to start MCP manager")
+
     yield
+
+    await app.state.mcp_manager.close()
     await app.state.engine.dispose()
 
 
@@ -46,6 +60,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.summary_provider,
         settings,
     )
+
+    app.state.tool_registry = ToolRegistry(settings)
+    register_local_tools(app.state.tool_registry)
+    app.state.tool_recorder = ToolCallRecorder(app.state.session_factory)
+    app.state.mcp_manager = MCPClientManager(settings, app.state.tool_registry)
 
     app.include_router(health_router)
     app.include_router(chat_router)

@@ -18,6 +18,7 @@ def settings() -> Settings:
         fake_delay_seconds=0.0,
         sse_heartbeat_seconds=0.0,
         max_history_messages=20,
+        tools_enabled=False,
     )
 
 

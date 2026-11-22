@@ -114,8 +114,6 @@ async def stream_turn(
                 yield SSEEvent("content_delta", {"delta": event.delta})
             elif event.type == "reasoning_delta":
                 yield SSEEvent("reasoning_delta", {"delta": event.delta})
-            elif event.type == "tool_call":
-                yield SSEEvent("tool_call", event.tool_call or {})
             elif event.type == "usage":
                 usage = event.usage
                 yield SSEEvent("usage", _usage_dict(usage) or {})

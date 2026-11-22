@@ -1,11 +1,12 @@
 import inspect
+import json
 from collections.abc import AsyncIterator
 
 import openai
 from openai import AsyncOpenAI
 
 from app.config import Settings
-from app.llm.base import Message, StreamEvent, ToolSpec, Usage
+from app.llm.base import Message, StreamEvent, ToolCall, ToolSpec, Usage
 
 
 class OpenAICompatProvider:
@@ -36,7 +37,7 @@ class OpenAICompatProvider:
     ) -> AsyncIterator[StreamEvent]:
         payload: dict[str, object] = {
             "model": self._model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_message_payload(message) for message in messages],
             "stream": True,
             "max_tokens": self._max_tokens,
             "temperature": self._temperature,
@@ -69,6 +70,7 @@ class OpenAICompatProvider:
 
             finish_reason: str | None = None
             usage: Usage | None = None
+            tool_call_accumulator = _ToolCallAccumulator()
 
             async for chunk in stream:
                 chunk_usage = getattr(chunk, "usage", None)
@@ -90,14 +92,109 @@ class OpenAICompatProvider:
                     if content:
                         yield StreamEvent(type="text_delta", delta=content)
 
+                    for tool_delta in getattr(delta, "tool_calls", None) or []:
+                        tool_call_accumulator.add(tool_delta)
+
                 if getattr(choice, "finish_reason", None):
                     finish_reason = choice.finish_reason
+
+            tool_calls = tool_call_accumulator.build()
+            if tool_calls:
+                yield StreamEvent(type="tool_calls", tool_calls=tool_calls)
 
             if usage is not None:
                 yield StreamEvent(type="usage", usage=usage)
             yield StreamEvent(type="end", finish_reason=finish_reason or "stop")
         finally:
             await _close_stream(stream)
+
+
+class _ToolCallAccumulator:
+    def __init__(self) -> None:
+        self._parts: dict[int, dict[str, str]] = {}
+
+    def add(self, tool_delta: object) -> None:
+        index = getattr(tool_delta, "index", None)
+        if index is None:
+            index = len(self._parts)
+
+        parts = self._parts.setdefault(
+            index,
+            {"id": "", "name": "", "arguments": ""},
+        )
+
+        tool_id = getattr(tool_delta, "id", None)
+        if tool_id:
+            parts["id"] = tool_id
+
+        function = getattr(tool_delta, "function", None)
+        if function is not None:
+            name = getattr(function, "name", None)
+            if name:
+                parts["name"] = name
+            arguments = getattr(function, "arguments", None)
+            if arguments:
+                parts["arguments"] += arguments
+
+    def build(self) -> list[ToolCall]:
+        return _build_tool_calls(self._parts)
+
+
+def _message_payload(message: Message) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "role": message.role,
+        "content": message.content,
+    }
+
+    if message.tool_calls:
+        payload["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": call.raw_arguments
+                    or json.dumps(call.arguments, ensure_ascii=False),
+                },
+            }
+            for call in message.tool_calls
+        ]
+
+    if message.tool_call_id:
+        payload["tool_call_id"] = message.tool_call_id
+    if message.name:
+        payload["name"] = message.name
+
+    return payload
+
+
+def _build_tool_calls(parts: dict[int, dict[str, str]]) -> list[ToolCall]:
+    calls: list[ToolCall] = []
+    for index in sorted(parts):
+        part = parts[index]
+        raw = part["arguments"] or "{}"
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                arguments = parsed
+                parse_error = False
+            else:
+                arguments = {}
+                parse_error = True
+        except json.JSONDecodeError:
+            arguments = {}
+            parse_error = True
+
+        calls.append(
+            ToolCall(
+                id=part["id"] or f"call_{index}",
+                name=part["name"],
+                arguments=arguments,
+                raw_arguments=raw,
+                parse_error=parse_error,
+            )
+        )
+    return calls
 
 
 def _to_usage(raw: object) -> Usage:

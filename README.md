@@ -2,7 +2,7 @@
 
 一个用于学习大模型后端开发的陪伴型 AI 聊天服务。目标不是做模型训练，而是把 **上下文工程、提示词工程、工具调用/MCP、SSE 流式输出** 这条链路亲手实现一遍。
 
-> 当前状态：P2 已实现（token 预算 + 滚动摘要；26 tests passed；PG 迁移 `0002_summaries` 已应用）。P3 做工具调用/MCP。
+> 当前状态：P3 第一阶段已实现（手写 AgentLoop、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气、`tool_calls` 审计；39 tests passed；PG 迁移 `0003_tool_calls` 已应用）。
 
 ## 学习目标
 
@@ -156,4 +156,36 @@ sudo -u postgres psql -d ai_companion \
 ```
 
 验证完记得把窗口参数恢复成默认值。
+
+## P3：工具调用与 MCP
+
+P3 第一阶段包含：
+
+- 手写 AgentLoop：模型 → `tool_call` → 执行 → `tool_result` → 再调模型；
+- 统一 `ToolRegistry`：本地工具 + MCP 工具；
+- 本地时间工具 + MCP stdio 时间 Server；
+- MCP stdio 天气 Server（数据来源：Open-Meteo 真实数据）；
+- `tool_calls` 审计表；
+- 只读工具自动执行，写/危险工具不暴露；
+- 工具超时、结果截断、最大步数、并行上限。
+
+安装 MCP SDK：
+
+```bash
+source .venv/bin/activate
+python -m pip install "mcp>=1.0,<2" -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+重启 uvicorn 后，MCP Server 会在 lifespan 中启动。测试：
+
+> 现在几点？
+
+预期 SSE 中出现 `tool_call`、`tool_result`，最终回答包含当前时间。工具调用会写入：
+
+```bash
+sudo -u postgres psql -d ai_companion \
+  -c "SELECT run_id, tool_name, server_name, status, latency_ms FROM tool_calls ORDER BY id DESC LIMIT 5;"
+```
+
+Streamable HTTP 是第二阶段，尚未实现。
 

@@ -489,7 +489,7 @@ mcp:
 ### 12.2 集成测试
 
 - `FakeProvider` 流式输出固定 chunk，验证 `/v1/chat/stream` 事件序列。
-- 工具循环：模型返回 `tool_call` → MCP mock → `tool_result` → 继续输出。
+- 工具循环：模型返回 `tool_call` → MCP Server（stdio）→ `tool_result` → 继续输出。
 - DB/Redis：Docker Compose 起依赖，测持久化与重连缓冲。
 - 取消：客户端断开后上游任务被取消，消息状态 `aborted`。
 
@@ -512,6 +512,9 @@ mcp:
 >
 > 2026-11-21：P2 已完成并验证。26 tests passed；迁移 `0002_summaries` 已应用；
 > token 预算 + 滚动摘要（`qwen-turbo`）已接入，上下文不再按 20 条消息硬截断。
+>
+> 2026-11-22：P3 第一阶段完成。39 tests passed；迁移 `0003_tool_calls` 已应用；
+> AgentLoop、ToolRegistry、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气已接入。
 
 1. `pyproject.toml`：fastapi、uvicorn、pydantic-settings、httpx、openai、pytest、pytest-asyncio、respx、ruff。
 2. `app/config.py`：环境变量配置。

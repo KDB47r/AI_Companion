@@ -70,6 +70,7 @@ class TurnService:
         message: str,
         client_message_id: str | None,
         persona_id: str,
+        tool_spec_tokens: int = 0,
     ) -> PreparedTurn | ReplayTurn:
         async with self._session_factory() as session:
             conversations = ConversationRepository(session)
@@ -137,6 +138,7 @@ class TurnService:
                 output_reserve_tokens=self._settings.llm_max_tokens,
                 safety_margin=self._settings.token_safety_margin,
                 summary_trigger_ratio=self._settings.summary_trigger_ratio,
+                tool_spec_tokens=tool_spec_tokens,
             )
 
             user_row = await messages.create(

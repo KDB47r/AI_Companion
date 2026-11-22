@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     summary_sync: bool = False
     token_safety_margin: float = 1.15
 
+    # P3 tools / MCP
+    tools_enabled: bool = True
+    max_tool_steps: int = 5
+    tool_timeout_seconds: float = 10.0
+    tool_parallel_limit: int = 4
+    max_tool_result_tokens: int = 2000
+    tool_permission_mode: str = "readonly_auto"
+    mcp_config_path: str = "config/mcp_servers.json"
+
     llm_provider: str = "fake"
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_api_key: str = ""

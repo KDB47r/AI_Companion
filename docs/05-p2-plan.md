@@ -411,4 +411,5 @@ TOKEN_SAFETY_MARGIN=1.15
 
 - 2026-11-21：P2 首版采用“滚动生成式摘要 + qwen-turbo + 单条摘要 + system 注入 + 后台异步”。
 - 2026-11-22：触发策略选定 B：`trigger_tokens = available_history_budget * SUMMARY_TRIGGER_RATIO`，保留 dropped 兜底；不再重复加 summary token。
-- 待讨论：是否在 P2 内改成分层摘要/结构化记忆；是否提前引入检索；摘要评测怎么做；下一轮是否等待摘要完成。
+- 2026-11-22：接受“一轮延迟 / 后台竞态”，P5 做观测时再评估是否增加等待屏障。
+- 待讨论：是否在 P2 内改成分层摘要/结构化记忆；是否提前引入检索；摘要评测怎么做。

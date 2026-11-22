@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     ForeignKey,
     Index,
@@ -155,6 +156,32 @@ class Summary(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class ToolCallRecord(Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        UniqueConstraint("run_id", "call_id", name="uq_tool_calls_run_call"),
+        Index("idx_tool_calls_run", "run_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
+    call_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    server_name: Mapped[str | None] = mapped_column(String(64))
+    step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    arguments_json: Mapped[dict | None] = mapped_column(JSON)
+    result_json: Mapped[dict | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

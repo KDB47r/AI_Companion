@@ -61,7 +61,7 @@ def test_build_context_drops_oldest_when_budget_is_small():
         history,
         None,
         "当前问题",
-        context_window_tokens=250,
+        context_window_tokens=300,
         output_reserve_tokens=20,
         safety_margin=1.0,
         summary_trigger_ratio=0.5,
@@ -97,13 +97,13 @@ def test_trigger_uses_available_history_budget_not_full_window():
         None,
         "你好",
         context_window_tokens=1000,
-        output_reserve_tokens=700,
+        output_reserve_tokens=600,
         safety_margin=1.0,
         summary_trigger_ratio=0.7,
     )
 
-    # available history budget is ~141 tokens; 70% is ~99.
-    # The history is ~124 tokens, so B triggers even though 124 < 700.
+    # available history budget is ~165 tokens; 70% is ~115.
+    # The history is ~124 tokens, so B triggers even though 124 < 600.
     assert result.dropped_messages == 0
     assert result.needs_summary is True
 

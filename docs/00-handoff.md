@@ -81,6 +81,10 @@ Phase 2：
 >
 > 2026-11-21：P2 已完成并验证。26 tests passed；PostgreSQL 迁移 `0002_summaries` 已应用；
 > 摘要模型使用 `qwen-turbo`，上下文按 token 预算装配，历史压缩成滚动摘要。
+>
+> 2026-11-22：P3 第一阶段已完成。39 tests passed；迁移 `0003_tool_calls` 已应用；
+> 手写 AgentLoop、ToolRegistry、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气已接入并验证。
+> Streamable HTTP 尚未实现。
 
 ## 7. 待确认
 
@@ -92,9 +96,10 @@ Phase 2：
 
 ## 8. 下一步
 
-1. P1/P2 已完成：26 tests passed，迁移到 `0002_summaries`。
-2. 用浏览器长对话验收滚动摘要（或临时调小 `CONTEXT_WINDOW_TOKENS`）。
-3. 进入 P3：工具调用循环 + MCP Client + 本地/远程 MCP Server。
+1. P3 第一阶段已验证：MCP stdio 时间、Open-Meteo 天气、AgentLoop、SSE 工具事件和审计都正常。
+2. P3 第二阶段：本地 Streamable HTTP MCP Server。
+3. 进入 P4：长期记忆/RAG（先解决 pgvector 安装）。
+4. P5：观测与评测。
 
 ## 9. 新会话启动提示
 

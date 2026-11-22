@@ -54,6 +54,7 @@ def build_context(
     output_reserve_tokens: int,
     safety_margin: float,
     summary_trigger_ratio: float,
+    tool_spec_tokens: int = 0,
 ) -> BuildResult:
     """Fit system + summary + recent history + current message into a token budget.
 
@@ -67,7 +68,12 @@ def build_context(
 
     fixed_raw = estimate_text(system_content) + estimate_message(current)
     fixed_tokens = ceil(fixed_raw * safety_margin)
-    available = context_window_tokens - output_reserve_tokens - fixed_tokens
+    available = (
+        context_window_tokens
+        - output_reserve_tokens
+        - fixed_tokens
+        - max(0, tool_spec_tokens)
+    )
 
     if available <= 0:
         raise ContextTooLarge(

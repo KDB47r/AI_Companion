@@ -11,7 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_current_user
 from app.config import Settings
-from app.llm.base import LLMProvider, Usage
+from app.llm.base import LLMProvider, ToolSpec, Usage
+from app.orchestrator.agent_loop import stream_turn as agent_stream_turn
 from app.orchestrator.chat_service import stream_turn
 from app.orchestrator.context_builder import ContextTooLarge
 from app.orchestrator.events import format_sse, heartbeat
@@ -53,6 +54,12 @@ async def chat_stream(
     provider: LLMProvider = request.app.state.provider
     service = TurnService(request.app.state.session_factory, settings)
 
+    tools: list[ToolSpec] = []
+    tool_spec_tokens = 0
+    if settings.tools_enabled:
+        tools = request.app.state.tool_registry.list_specs()
+        tool_spec_tokens = request.app.state.tool_registry.spec_token_estimate()
+
     try:
         prepared = await service.prepare(
             user_id=user.id,
@@ -60,6 +67,7 @@ async def chat_stream(
             message=payload.message,
             client_message_id=payload.client_message_id,
             persona_id=payload.persona_id,
+            tool_spec_tokens=tool_spec_tokens,
         )
     except ConversationNotFound as exc:
         raise HTTPException(
@@ -91,7 +99,7 @@ async def chat_stream(
         )
 
     return StreamingResponse(
-        _new_turn_events(service, prepared, provider, request, settings),
+        _new_turn_events(service, prepared, provider, request, settings, tools),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
@@ -139,6 +147,7 @@ async def _new_turn_events(
     provider: LLMProvider,
     request: Request,
     settings: Settings,
+    tools: list[ToolSpec],
 ) -> AsyncIterator[str]:
     event_id = 0
     status = "aborted"
@@ -154,8 +163,21 @@ async def _new_turn_events(
         event_id += 1
         return format_sse(name, data, event_id)
 
-    try:
-        async for item in stream_turn(
+    if settings.tools_enabled and tools:
+        events = agent_stream_turn(
+            provider,
+            prepared.messages,
+            tools,
+            request.app.state.tool_registry,
+            request.app.state.tool_recorder,
+            conversation_id=prepared.conversation_id,
+            message_id=prepared.assistant_message_id,
+            run_id=prepared.run_id,
+            created_at=prepared.created_at,
+            settings=settings,
+        )
+    else:
+        events = stream_turn(
             provider,
             prepared.messages,
             conversation_id=prepared.conversation_id,
@@ -163,7 +185,10 @@ async def _new_turn_events(
             run_id=prepared.run_id,
             created_at=prepared.created_at,
             heartbeat_seconds=settings.sse_heartbeat_seconds,
-        ):
+        )
+
+    try:
+        async for item in events:
             if await request.is_disconnected():
                 status = "aborted"
                 break
