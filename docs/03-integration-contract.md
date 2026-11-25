@@ -1,6 +1,7 @@
 # 03 · Phase 2 集成契约（AI Companion ↔ MsgRail）
 
-> 状态：草案。Phase 2 才实现；先定义契约，避免两个仓库各自演化后对不上。
+> 状态：P6.1 已实现。实际链路为 Logic → Kafka `ai_trigger` → AI Worker → AI Companion SSE；
+> 流式帧经 Logic 内部 HTTP 转回 `push_to_comet`。本文档已按实现更新。
 
 ## 1. 目标
 
@@ -38,74 +39,92 @@ Accept: text/event-stream
 Idempotency-Key: <msg_id>
 ```
 
-请求体：
+请求体（P6 实际实现）：
 
 ```json
 {
-  "request_id": "uuid",
-  "user_id": "u_123",
-  "conversation_id": "c_456",
-  "message_id": "m_789",
-  "message": "你好",
-  "persona_id": "default"
+  "request_id": "job_...",
+  "mode": "private",
+  "user_id": "im:910000000000003",
+  "session_id": "single:910000000000001:910000000000003",
+  "bot_user_id": 910000000000001,
+  "trigger_message_id": "single:...-1",
+  "trigger_sender_id": 910000000000003,
+  "trigger_sender_name": "p6alice",
+  "context_messages": [
+    {
+      "message_id": "...",
+      "sender_id": 910000000000003,
+      "sender_name": "p6alice",
+      "sender_type": "human",
+      "content": "你好",
+      "timestamp_ms": 1760000000000
+    }
+  ],
+  "persona_id": "xiaoheng",
+  "idempotency_key": "..."
 }
 ```
 
 字段说明：
 
-- `user_id` / `conversation_id` / `message_id`：MsgRail 侧的 ID，AI 服务按外部 ID 存储映射。
-- `message_id` 同时作为 `Idempotency-Key`，重试不会产生两条 AI 回复。
-- `persona_id`：MsgRail 侧选择的 AI 角色。
+- `mode=private`：启用 P4 记忆/RAG；`mode=shared`：只使用 `context_messages`，禁用记忆/RAG。
+- `session_id`/`trigger_message_id`/`bot_user_id` 是 MsgRail 侧 ID；AI Companion **不创建会话、不保存 A-B 历史**。
+- `trigger_message_id` 必须出现在上下文最后；服务端会丢弃触发消息之后的上下文。
+- `context_messages` 最多 30 条（服务端也按 token 预算裁剪）。
 
-响应：`text/event-stream`，事件与公共 SSE 协议一致，额外字段：
+响应：`text/event-stream`，沿用公共 SSE 事件：
 
 ```text
 event: message_start
-data: {"ai_message_id":"m_ai_01","conversation_id":"c_456","reply_to":"m_789"}
+data: {"conversation_id":"single:...","message_id":"job_...","run_id":"job_..."}
 
 event: content_delta
 data: {"delta":"你好呀"}
 
 event: tool_call
-data: {"call_id":"call_01","name":"get_weather","arguments":{"city":"杭州"}}
+data: {"call_id":"call_01","name":"local__get_current_time","arguments":{}}
 
 event: tool_result
-data: {"call_id":"call_01","status":"ok","preview":"晴，26℃"}
+data: {"call_id":"call_01","status":"ok","preview":"..."}
 
 event: message_end
-data: {"finish_reason":"stop","ai_message_id":"m_ai_01","usage":{"input_tokens":1200,"output_tokens":80}}
+data: {"finish_reason":"stop","message_id":"job_...","run_id":"job_...","usage":{...}}
+
+event: error
+data: {"code":"...","message":"...","retryable":false,"run_id":"job_..."}
 ```
 
 ## 4. 事件到 MsgRail WS 帧的映射
 
-MsgRail 的 Logic 读取 SSE 后，转换成现有 WebSocket 下行帧。建议帧类型：
+AI Worker 把 SSE 转成 Logic 内部 HTTP，再通过现有 `push_to_comet` 下发。
+实际 WS 帧是**顶层对象**（不是 `single_chat` 包装）：
 
-| SSE event | WS 帧 | 字段 |
+| SSE/阶段 | WS 顶层 `type` | 字段 |
 |---|---|---|
-| `message_start` | `ai_stream_start` | `request_id`, `ai_message_id`, `reply_to` |
-| `content_delta` | `ai_stream_delta` | `request_id`, `delta` |
-| `tool_call` | `ai_stream_tool` | `request_id`, `call_id`, `name`, `status=started` |
-| `tool_result` | `ai_stream_tool` | `request_id`, `call_id`, `status=ok/error` |
-| `message_end` | `ai_stream_end` | `request_id`, `finish_reason`, `usage` |
-| `error` | `ai_stream_error` | `request_id`, `code`, `message`, `retryable` |
+| `content_delta` 批量 | `ai_stream` | `job_id`, `session_id`, `bot_user_id`, `sender_name`, `mentioner_id`, `delta` |
+| 失败 | `ai_stream` | 同上 + `error:{code,message}` |
+| 停止 | `ai_stream` | 同上 + `stopped:true` |
+| `message_end` 后最终落库 | `text` | `ai_job_id`, `session_id`, `from_user_id`, `sender_name`, `content` |
+| 邀请/同意/拒绝/移除 | `system` | `session_id`, `event`, `text`, `bot_id`, `inviter_id`/`responder_id` |
 
-具体封装要适配 MsgRail 现有 WS 消息结构；如果已有通用 `push` 帧，可直接复用，不新增类型。
+前端对 `ai_stream` 创建占位气泡，收到最终 `text` 帧后按 `ai_job_id` 替换；
+系统事件用居中的系统卡片展示，邀请 pending 时非邀请方显示同意/拒绝按钮。
 
 ## 5. ID 映射
 
 | 概念 | MsgRail | AI Companion |
 |---|---|---|
-| 用户 | `user_id` | `users.external_id` |
-| 会话 | `conversation_id` | `conversations.id`（直接用外部 ID） |
-| 用户消息 | `message_id` | `messages.external_message_id` + `client_message_id` |
-| AI 回复 | 新消息 ID | `messages.id`（`ai_message_id`） |
-| 请求链路 | `request_id` | `runs.id`（或单独 `request_id` 字段） |
+| 用户 | `user_id` | `users.external_id = "im:<user_id>"` |
+| 会话 | `session_id` | 仅作为请求字段，不落 `conversations` |
+| 用户消息 | `message_id` (`session_id-seq`) | `context_messages[].message_id`，不落 `messages` |
+| AI 回复 | `session_id-seq` | 由 Logic 在 `finalize` 时分配并落 `message` |
+| 请求链路 | `job_id` | `runs.id` 仅用于 AI 内部观测；P6.1 不持久化 |
 
 实现建议：
 
-- AI 服务允许 `conversations.id` 直接使用 MsgRail 的会话 ID（字符串）。
-- `messages.external_message_id` 存 MsgRail 消息 ID；唯一索引。
-- 重试时按 `(conversation_id, client_message_id)` 幂等命中已有 AI 消息。
+- 私人模式按 `im:<human_user_id>` 隔离记忆；气氛组不检索记忆。
+- 幂等由 MsgRail `ai_job` 唯一键 `(session_id, trigger_message_id, bot_user_id)` 保证。
 
 ## 6. 鉴权与网络
 

@@ -1,6 +1,9 @@
 # 05 · P2 技术方案：Token 预算与滚动摘要
 
-> 状态：已实现并验证（26 tests passed；PostgreSQL 迁移 `0002_summaries` 已应用）。摘要模型使用 `qwen-turbo`。
+> 状态：已实现并验证（26 tests passed；PostgreSQL 迁移 `0002_summaries` 已应用）。
+>
+> 2026-11-22 注：原方案默认 `qwen-turbo`，但该账号在百炼没有 qwen-turbo 免费额度，导致 429。
+> 现已改为默认复用 `LLM_MODEL`（qwen-plus），可用 `SUMMARY_MODEL` 覆盖。下文的 qwen-turbo 描述保留为历史方案。
 >
 > P2 目标是把 P1 的“最近 20 条消息”硬截断，升级为“token 预算 + 滚动摘要”。
 
@@ -177,7 +180,7 @@ SUMMARY_ENABLED=true
 SUMMARY_TRIGGER_RATIO=0.7
 SUMMARY_KEEP_RECENT_MESSAGES=6
 SUMMARY_MAX_TOKENS=512
-SUMMARY_MODEL=qwen-turbo  # 已确认；其他 Provider 可改成对应模型
+SUMMARY_MODEL=            # 空 = LLM_MODEL；需确认模型在百炼有额度
 SUMMARY_TEMPERATURE=0.2
 SUMMARY_SYNC=false        # 测试时可设 true
 TOKEN_SAFETY_MARGIN=1.15

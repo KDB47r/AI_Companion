@@ -56,9 +56,12 @@ async def chat_stream(
 
     tools: list[ToolSpec] = []
     tool_spec_tokens = 0
+    allowed_tools = settings.tool_allowlist("private")
     if settings.tools_enabled:
-        tools = request.app.state.tool_registry.list_specs()
-        tool_spec_tokens = request.app.state.tool_registry.spec_token_estimate()
+        tools = request.app.state.tool_registry.list_specs(allowed_tools)
+        tool_spec_tokens = request.app.state.tool_registry.spec_token_estimate(
+            allowed_tools
+        )
 
     memory_text = None
     rag_text = None
@@ -126,7 +129,15 @@ async def chat_stream(
         )
 
     return StreamingResponse(
-        _new_turn_events(service, prepared, provider, request, settings, tools),
+        _new_turn_events(
+            service,
+            prepared,
+            provider,
+            request,
+            settings,
+            tools,
+            allowed_tools,
+        ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
@@ -175,6 +186,7 @@ async def _new_turn_events(
     request: Request,
     settings: Settings,
     tools: list[ToolSpec],
+    allowed_tools: set[str] | None,
 ) -> AsyncIterator[str]:
     event_id = 0
     status = "aborted"
@@ -202,6 +214,7 @@ async def _new_turn_events(
             run_id=prepared.run_id,
             created_at=prepared.created_at,
             settings=settings,
+            allowed_tools=allowed_tools,
         )
     else:
         events = stream_turn(

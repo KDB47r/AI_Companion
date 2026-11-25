@@ -2,7 +2,7 @@
 
 一个用于学习大模型后端开发的陪伴型 AI 聊天服务。目标不是做模型训练，而是把 **上下文工程、提示词工程、工具调用/MCP、SSE 流式输出** 这条链路亲手实现一遍。
 
-> 当前状态：P4.2 已实现并验证（长期记忆 + 文档 RAG；Qwen embedding + pgvector 0.8.7；57 tests passed；PG 迁移 `0005_documents` 已应用）。
+> 当前状态：P6.1 + MCP v1 已接入 MsgRail（私人 AI 1:1、A-B 气氛组、结构化 mention、Kafka `ai_trigger`、AI Worker、流式推送、最终落库；新增计算器/随机/骰子/节日/冷知识/RSS/网页抓取，搜索 Key 留空）。P4.2 长期记忆 + 文档 RAG 已验证；AI Companion 自身 80 tests passed。
 
 ## 学习目标
 
@@ -30,6 +30,7 @@
 - [P4 方案：长期记忆与 RAG](docs/07-p4-plan.md)
 - [pgvector 安装指南](docs/08-pgvector-install.md)
 - [消息与状态的生命周期](docs/09-message-lifecycle.md)
+- [P6 MCP 扩展方案：搜索、抓取、知识、气氛组](docs/12-mcp-expansion-plan.md)
 
 ## 快速开始
 
@@ -123,6 +124,49 @@ P1 新增接口：
 
 `POST /v1/chat/stream` 现在会自动创建/续用 `conversation_id`，并把历史一起发给模型。
 
+## P6：接入 MsgRail
+
+MsgRail 是聊天历史的权威数据源；AI Companion 不保存 A-B 聊天记录。
+
+两个入口：
+
+- **私人 AI 助手**：在 MsgRail 里和 `ai_assistant`（显示名“小桁”）1:1 聊天；启用 P4 记忆/RAG。
+- **A-B 气氛组**：邀请 `ai_vibe`（显示名也叫“小桁”）进入 A-B 单聊；双方同意后，只有当前消息结构化 mention 小桁时才回复；只读取加入后的最近 30 条；禁用用户记忆/RAG。
+
+链路：
+
+```text
+Logic --Kafka ai_trigger--> AI Worker
+AI Worker --HTTP SSE--> AI Companion /internal/v1/agent/stream
+AI Worker --HTTP--> Logic /internal/ai/context|delta|finalize|fail
+Logic --Kafka push_to_comet--> Job -> Comet -> 浏览器
+```
+
+启动 AI Worker（Kafka 客户端是可选依赖，需要手动安装）：
+
+```bash
+.venv/bin/pip install "aiokafka>=0.10"   # 或使用你的 PyPI 镜像
+scripts/run_ai_worker.sh
+```
+
+MCP 工具配置在 `config/mcp_servers.json`；RSS 白名单在 `config/rss_feeds.json`。
+搜索 Key 先留空，`web__search` 会明确返回未配置；填 `BOCHA_API_KEY` 后即可使用。
+大陆网络无法直连 Wikipedia，默认关闭；需要时设置 `WIKIPEDIA_ENABLED=true`。
+
+没有 Kafka 时也可以手动跑一条触发做本地调试：
+
+```bash
+.venv/bin/python -m app.worker.ai_worker --trigger-json '{
+  "job_id":"job_demo","mode":"shared",
+  "session_id":"single:1:2","bot_user_id":910000000000002,
+  "trigger_message_id":"single:1:2-3","trigger_sender_id":1,
+  "trigger_sender_name":"A","trigger_content":"@小桁 说句话",
+  "target_user_ids":[1,2],"activated_seq":2
+}'
+```
+
+> `ai_trigger`、`session_bot`、`ai_job` 和两个 bot 用户的迁移在 MsgRail 的 `sql/migrations/006_ai_companion.sql`。MsgRail 的 `conf/logic.conf` 中的 `ai_internal_token` 必须与这里的 `LOGIC_INTERNAL_TOKEN`/`INTERNAL_TOKEN` 一致。
+
 ## P2：上下文预算与滚动摘要
 
 默认配置：
@@ -133,7 +177,8 @@ SUMMARY_ENABLED=true
 SUMMARY_TRIGGER_RATIO=0.7
 SUMMARY_KEEP_RECENT_MESSAGES=6
 SUMMARY_MAX_TOKENS=512
-SUMMARY_MODEL=qwen-turbo
+SUMMARY_MODEL=
+# 空 = LLM_MODEL；需确认该模型在百炼有额度
 SUMMARY_TEMPERATURE=0.2
 SUMMARY_SYNC=false
 TOKEN_SAFETY_MARGIN=1.15
@@ -141,7 +186,7 @@ TOKEN_SAFETY_MARGIN=1.15
 
 - 上下文按 token 预算装配，不再按消息条数硬截断。
 - 历史被裁剪，或未摘要 token 超过“可用历史预算”的 70% 时，触发滚动摘要。
-- 摘要由 `qwen-turbo` 生成，存 `summaries` 表，下一轮自动注入 system prompt。
+- 摘要默认复用 `LLM_MODEL`（当前 qwen-plus），存 `summaries` 表，下一轮自动注入 system prompt；可用 `SUMMARY_MODEL` 单独覆盖。
 - 默认后台异步生成；测试可设 `SUMMARY_SYNC=true`。
 
 想快速看到摘要效果，可以临时把窗口调小：
@@ -201,7 +246,7 @@ P4.1 已实现：
 
 - `memories` 表 + pgvector 0.8.7，`embedding vector(1024)` + HNSW 索引；
 - Qwen `text-embedding-v3` 生成 embedding；
-- 每 3 轮用 `qwen-turbo` 从对话中抽取 fact/preference/event；
+- 每 3 轮用 `LLM_MODEL`（当前 qwen-plus）从对话中抽取 fact/preference/event；可用 `MEMORY_EXTRACTION_MODEL` 覆盖；
 - 内容 hash + 相似度去重；
 - 每轮对话前按当前用户消息检索 top-5（阈值 0.35），注入 system prompt；
 - `GET /v1/memories`、`DELETE /v1/memories/{id}`、`DELETE /v1/memories`。
@@ -216,7 +261,8 @@ MEMORY_TOP_K=5
 MEMORY_MIN_SIMILARITY=0.35
 MEMORY_MAX_TOKENS=600
 MEMORY_EXTRACT_EVERY_TURNS=3
-MEMORY_EXTRACTION_MODEL=qwen-turbo
+MEMORY_EXTRACTION_MODEL=
+# 空 = LLM_MODEL；需确认该模型在百炼有额度
 MEMORY_SYNC=false
 ```
 
@@ -233,7 +279,7 @@ PGPASSWORD=ai_companion psql -h 127.0.0.1 -U postgres -d ai_companion \
 
 关闭记忆：`MEMORY_ENABLED=false`，聊天会跳过 embedding/检索/抽取。
 
-> 注意：开启后每轮对话前会调用一次 embedding，增加少量延迟和 token 成本；抽取每 3 轮用一次 qwen-turbo。
+> 注意：开启后每轮对话前会调用一次 embedding，增加少量延迟和 token 成本；抽取每 3 轮一次，默认复用 `LLM_MODEL`。
 
 ## P4.2：文档 RAG
 

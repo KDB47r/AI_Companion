@@ -44,6 +44,7 @@ async def stream_turn(
     run_id: str,
     created_at: str,
     settings: Settings,
+    allowed_tools: set[str] | None = None,
 ) -> AsyncIterator[SSEEvent | None]:
     """Run the model/tool/model loop and yield protocol events.
 
@@ -159,7 +160,10 @@ async def stream_turn(
                 },
             )
 
-        results = await registry.execute_many(step_tool_calls)
+        results = await registry.execute_many(
+            step_tool_calls,
+            allowed=allowed_tools,
+        )
 
         for call, result in zip(step_tool_calls, results):
             await recorder.record(

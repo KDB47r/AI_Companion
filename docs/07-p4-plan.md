@@ -75,7 +75,7 @@ LLM → 回答
   │
   ▼（异步）
 MemoryExtractor
-  ├─ qwen-turbo 抽取 facts/preferences/events
+  ├─ LLM_MODEL（默认 qwen-plus）抽取 facts/preferences/events
   ├─ 去重/合并
   └─ embedding → memories 表
 ```
@@ -194,7 +194,7 @@ apt-cache search pgvector 无结果
 | 会话结束/摘要时 | 成本最低 | 实时性差 |
 | 用户显式“记住” | 准确 | 需要用户操作 |
 
-**推荐：每 3 轮或摘要触发时异步抽取，使用 qwen-turbo。**
+**推荐：每 3 轮或摘要触发时异步抽取，默认复用 `LLM_MODEL`（qwen-plus）。** 原方案用 qwen-turbo，但该账号在百炼没有 qwen-turbo 免费额度，导致 429；可用 `MEMORY_EXTRACTION_MODEL` 覆盖。
 
 **抽取输出**
 
@@ -326,7 +326,7 @@ P4 先手动 + 小评测集，P5 系统化：
 | P4 范围 | 先 P4.1 结构化记忆，再 P4.2 文档 RAG |
 | Embedding | Qwen `text-embedding-v3`（1024 维，先验证兼容模式） |
 | 向量库 | pgvector；先试源码安装 |
-| 记忆抽取 | 每 3 轮或摘要触发，qwen-turbo，JSON 输出 |
+| 记忆抽取 | 每 3 轮或摘要触发，复用 `LLM_MODEL`，JSON 输出 |
 | 检索 | 相似度阈值 0.35 + top-5 |
 | 注入 | system prompt，memory 块 ≤600 token |
 | 检索方式 | 自动检索；`memory_search` 工具后续 |
@@ -401,7 +401,7 @@ MEMORY_TOP_K=5
 MEMORY_MIN_SIMILARITY=0.35
 MEMORY_MAX_TOKENS=600
 MEMORY_EXTRACT_EVERY_TURNS=3
-MEMORY_EXTRACTION_MODEL=qwen-turbo
+MEMORY_EXTRACTION_MODEL=   # 空 = LLM_MODEL；需确认模型有额度
 
 RAG_ENABLED=false
 RAG_TOP_K=5
@@ -496,7 +496,7 @@ migrations/versions/0004_long_term_memory.py
 | 1 | 架构 | **混合**：结构化记忆 + 文档 RAG；实现顺序仍先 P4.1，再 P4.2，最后在同一 prompt 合并注入 |
 | 2 | Embedding | Qwen `text-embedding-v3`，1024 维；接口抽象成 `EmbeddingProvider` |
 | 3 | 向量库 | pgvector；**源码编译 v0.8.7**（详见 `docs/08-pgvector-install.md`） |
-| 4 | 记忆抽取 | 每 3 轮或摘要触发，`qwen-turbo`，JSON 输出 |
+| 4 | 记忆抽取 | 每 3 轮或摘要触发，复用 `LLM_MODEL`，JSON 输出 |
 | 5 | 检索 | 相似度阈值 0.35 + top-5；暂不做时间/重要性加权 |
 | 6 | 注入 | system prompt；memory ≤600 token，RAG ≤1200 token |
 | 7 | 检索方式 | 自动检索；`memory_search` 工具后置 |

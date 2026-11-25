@@ -511,7 +511,7 @@ mcp:
 > 2026-11-21：P1 代码已完成（SQLAlchemy/Alembic、多轮历史、幂等、历史恢复、前端“新对话”）。
 >
 > 2026-11-21：P2 已完成并验证。26 tests passed；迁移 `0002_summaries` 已应用；
-> token 预算 + 滚动摘要（`qwen-turbo`）已接入，上下文不再按 20 条消息硬截断。
+> token 预算 + 滚动摘要（默认复用 `LLM_MODEL`）已接入，上下文不再按 20 条消息硬截断。
 >
 > 2026-11-22：P3 第一阶段完成。39 tests passed；迁移 `0003_tool_calls` 已应用；
 > AgentLoop、ToolRegistry、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气已接入。

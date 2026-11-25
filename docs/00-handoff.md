@@ -80,7 +80,7 @@ Phase 2：
 > 2026-11-21：P1 已完成（SQLAlchemy + Alembic + PostgreSQL、多轮历史、幂等、前端历史恢复）。
 >
 > 2026-11-21：P2 已完成并验证。26 tests passed；PostgreSQL 迁移 `0002_summaries` 已应用；
-> 摘要模型使用 `qwen-turbo`，上下文按 token 预算装配，历史压缩成滚动摘要。
+> 摘要/记忆抽取默认复用 `LLM_MODEL`（qwen-plus）；原 qwen-turbo 方案因账号无免费额度已调整。
 >
 > 2026-11-22：P3 第一阶段已完成。39 tests passed；迁移 `0003_tool_calls` 已应用；
 > 手写 AgentLoop、ToolRegistry、本地时间工具、MCP stdio 时间 Server、Open-Meteo 真实天气已接入并验证。
@@ -91,6 +91,26 @@ Phase 2：
 >
 > 2026-11-22：P4.2 已实现并验证。57 tests passed；迁移 `0005_documents`；
 > `.txt`/`.md` 上传、500 token 切块、embedding、top-5 检索、引用和删除均验证通过。
+>
+> 2026-11-23：P6.1 已接入 MsgRail。两个 bot（私人 `ai_assistant`、气氛组 `ai_vibe`）、
+> `session_bot` 双方同意、结构化 `mentions`、Kafka `ai_trigger`、Python AI Worker、
+> Logic 内部接口、流式 delta / 最终落库 / mentioner-only 停止均已打通。
+> AI Companion 62 tests passed；MsgRail 迁移 `006_ai_companion.sql` 已应用。
+> 连续消费 Kafka 需手动安装 `aiokafka`（见 README P6 一节）。
+>
+> 2026-11-24：P6 MCP v1 已实现。新增 `fun`（计算器/随机/骰子/节日/冷知识）、
+> `web`（搜索/抓取，搜索 Key 留空）、`knowledge`（RSS；Wikipedia 默认关闭）三个
+> stdio MCP Server；私人/气氛组工具 profile、执行级 allowlist、SSRF/截断/缓存/
+> 不可信网页标注已接入。AI Companion 80 tests passed。
+>
+> 2026-11-25：注入当前日期（Asia/Shanghai）+ 实时信息工具策略；私人 IM 中
+> “你知道最近黄仁勋的事情吗”已验证会自动调用 `web__search`，不需要用户说“搜索”。
+> 气氛组仍不暴露搜索/抓取/RSS。AI Companion 81 tests passed。
+> 豆包搜索 Key 已配置在 `.env`（`.env.example` 已清空），Custom 端点已验证。
+>
+> 2026-11-25 追加：来源优先级 + 时间线规则（先发生/后发生，不能用最新消息否定较早事件）；
+> IM 构造上下文时会清洗旧 assistant 回复里的 2024/训练截止说法，并在触发前加入本轮校准。
+> 实测“黄仁勋是否卸任”会先搜卸任，再说明 11-12 卸任、11-23 复职的时间线。
 
 ## 7. 待确认
 
@@ -102,10 +122,10 @@ Phase 2：
 
 ## 8. 下一步
 
-1. P4.1/P4.2 已验证：长期记忆 + 文档 RAG。
+1. P6.2：把 IM 私人聊天接入 P4 记忆抽取；Worker offset 重放保护；群聊 @小桁。
 2. P5：观测与评测（TTFT、token、工具调用、记忆/RAG 命中、评测集）。
 3. P3 第二阶段的 Streamable HTTP MCP 可并行后置。
-4. 记忆抽取的 429 退避与状态化抽取仍待优化。
+4. 记忆抽取已切换 qwen-plus，429 问题解决；状态化抽取/观测/评测仍待做。
 
 ## 9. 新会话启动提示
 

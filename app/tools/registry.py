@@ -54,24 +54,55 @@ class ToolRegistry:
             permission=permission,
         )
 
-    def list_specs(self) -> list[ToolSpec]:
+    @staticmethod
+    def _allowed(name: str, allowed: set[str] | None) -> bool:
+        if allowed is None:
+            return True
+        if name in allowed:
+            return True
+        server = name.split("__", 1)[0]
+        return f"{server}__*" in allowed
+
+    def list_specs(
+        self,
+        allowed: set[str] | None = None,
+    ) -> list[ToolSpec]:
         if self._settings.tool_permission_mode == "readonly_auto":
-            return [
+            specs = [
                 tool.spec
                 for tool in self._tools.values()
                 if tool.permission == "read"
             ]
-        return [tool.spec for tool in self._tools.values()]
+        else:
+            specs = [tool.spec for tool in self._tools.values()]
+        return [spec for spec in specs if self._allowed(spec.name, allowed)]
 
-    def spec_token_estimate(self) -> int:
-        return estimate_tool_specs(self.list_specs())
+    def spec_token_estimate(
+        self,
+        allowed: set[str] | None = None,
+    ) -> int:
+        return estimate_tool_specs(self.list_specs(allowed))
 
     def server_for(self, name: str) -> str | None:
         tool = self._tools.get(name)
         return tool.server if tool is not None else None
 
-    async def execute(self, call: ToolCall) -> ToolResult:
+    async def execute(
+        self,
+        call: ToolCall,
+        allowed: set[str] | None = None,
+    ) -> ToolResult:
         started = time.perf_counter()
+        if not self._allowed(call.name, allowed):
+            return self._result(
+                call,
+                None,
+                "denied",
+                "TOOL_DENIED",
+                f"ERROR[TOOL_DENIED]: 工具 {call.name} 未被允许",
+                started,
+            )
+
         tool = self._tools.get(call.name)
 
         if tool is None:
@@ -145,10 +176,14 @@ class ToolRegistry:
             started,
         )
 
-    async def execute_many(self, calls: list[ToolCall]) -> list[ToolResult]:
+    async def execute_many(
+        self,
+        calls: list[ToolCall],
+        allowed: set[str] | None = None,
+    ) -> list[ToolResult]:
         async def run(call: ToolCall) -> ToolResult:
             async with self._semaphore:
-                return await self.execute(call)
+                return await self.execute(call, allowed=allowed)
 
         return list(await asyncio.gather(*(run(call) for call in calls)))
 

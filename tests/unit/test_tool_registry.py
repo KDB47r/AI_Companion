@@ -72,6 +72,33 @@ async def test_registry_denies_write_tools_and_reports_unknown():
 
 
 @pytest.mark.asyncio
+async def test_registry_profile_filters_specs_and_execution():
+    registry = ToolRegistry(_settings())
+    echo = ToolSpec(
+        name="test__echo",
+        description="echo",
+        parameters={"type": "object"},
+    )
+    private = ToolSpec(
+        name="test__private",
+        description="private",
+        parameters={"type": "object"},
+    )
+    registry.register(echo, _echo, server="test", permission="read")
+    registry.register(private, _echo, server="test", permission="read")
+
+    specs = registry.list_specs(allowed={"test__echo"})
+    assert [spec.name for spec in specs] == ["test__echo"]
+
+    denied = await registry.execute(
+        ToolCall(id="c1", name="test__private", arguments={"text": "x"}),
+        allowed={"test__echo"},
+    )
+    assert denied.status == "denied"
+    assert denied.error_code == "TOOL_DENIED"
+
+
+@pytest.mark.asyncio
 async def test_registry_timeout():
     registry = ToolRegistry(_settings(tool_timeout_seconds=0.01))
     spec = ToolSpec(

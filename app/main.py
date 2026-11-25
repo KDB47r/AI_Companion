@@ -10,6 +10,7 @@ from app.api.chat import router as chat_router
 from app.api.conversations import router as conversations_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
+from app.api.internal import router as internal_router
 from app.api.memories import router as memories_router
 from app.config import Settings, get_settings
 from app.llm.registry import build_provider
@@ -76,7 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     memory_settings = settings.model_copy(
         update={
-            "llm_model": settings.memory_extraction_model,
+            "llm_model": settings.memory_extraction_model or settings.llm_model,
             "llm_temperature": settings.memory_extraction_temperature,
             "llm_max_tokens": 512,
         }
@@ -100,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(internal_router)
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(memories_router)

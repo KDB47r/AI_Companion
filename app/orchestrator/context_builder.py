@@ -4,6 +4,7 @@ from math import ceil
 from pathlib import Path
 
 from app.llm.base import Message
+from app.orchestrator.prompt_context import current_date_line
 from app.orchestrator.token_counter import (
     estimate_message,
     estimate_messages,
@@ -42,8 +43,11 @@ def _system_content(
     summary: str | None,
     memory: str | None,
     rag: str | None,
+    system_prompt: str | None = None,
 ) -> str:
-    content = load_system_prompt()
+    content = (
+        system_prompt if system_prompt is not None else load_system_prompt()
+    ) + "\n\n" + current_date_line()
     if summary:
         content += SUMMARY_PREFIX + summary
     if memory:
@@ -65,6 +69,7 @@ def build_context(
     tool_spec_tokens: int = 0,
     memory: str | None = None,
     rag: str | None = None,
+    system_prompt: str | None = None,
 ) -> BuildResult:
     """Fit system + summary + recent history + current message into a token budget.
 
@@ -73,7 +78,12 @@ def build_context(
     ``needs_summary`` so the caller can schedule a rolling summary.
     """
 
-    system_content = _system_content(summary, memory, rag)
+    system_content = _system_content(
+        summary,
+        memory,
+        rag,
+        system_prompt=system_prompt,
+    )
     current = Message(role="user", content=user_message)
 
     fixed_raw = estimate_text(system_content) + estimate_message(current)

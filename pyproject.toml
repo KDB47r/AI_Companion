@@ -25,6 +25,9 @@ dev = [
     "ruff>=0.6",
     "aiosqlite>=0.20",
 ]
+worker = [
+    "aiokafka>=0.10",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

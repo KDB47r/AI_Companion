@@ -13,7 +13,7 @@ from tests.providers import FailingProvider, RecordingProvider
 
 @pytest.mark.asyncio
 async def test_rolling_summary_is_stored_and_injected(client, app, settings):
-    settings.context_window_tokens = 400
+    settings.context_window_tokens = 1000
     settings.llm_max_tokens = 50
     settings.summary_trigger_ratio = 0.05
     settings.summary_keep_recent_messages = 2

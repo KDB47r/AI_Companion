@@ -11,6 +11,7 @@ from app.storage.db import Base
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
+        _env_file=None,
         dev_token="test-token",
         database_url="sqlite+aiosqlite:///:memory:",
         llm_provider="fake",
